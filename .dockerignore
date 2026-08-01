@@ -1,0 +1,9 @@
+node_modules
+.next
+data
+generated
+tests
+.git
+*.md
+.env
+.env.*

@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "JobSource" ADD VALUE 'REMOTIVE';
+ALTER TYPE "JobSource" ADD VALUE 'ARBEITNOW';

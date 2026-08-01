@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated / tooling (do not lint):
+    "**/.next/**",
+    ".claude/**",
+    "generated/**",
+    "test-results/**",
+    "coverage/**",
   ]),
 ]);
 

@@ -1,0 +1,197 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  // Pinned to CommonJS: this project's package.json has no "type": "module",
+  // and Prisma 7's client is ESM by default. Forcing cjs here avoids flipping
+  // the whole project to ESM just to satisfy the generated client.
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  // Required by Auth.js's AdapterUser type even though this project doesn't
+  // implement email verification yet — always null for now.
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts     Account[]
+  sessions     Session[]
+  profile      Profile?
+  resume       Resume?
+  jobSettings  UserJobSettings?
+  applications Application[]
+  boardConnections JobBoardConnection[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+// Unused at runtime (sessions are JWT, see auth.ts in a later task), but
+// required so the Prisma Client shape matches what @auth/prisma-adapter's
+// PrismaAdapter() expects (it always calls p.session.*, even though Auth.js
+// never invokes those adapter methods under the "jwt" strategy).
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+enum Seniority {
+  JUNIOR
+  PLENO
+  SENIOR
+  ESPECIALISTA
+}
+
+enum WorkMode {
+  REMOTO
+  HIBRIDO
+  PRESENCIAL
+}
+
+enum ContractType {
+  CLT
+  PJ
+  FREELANCE
+  ESTAGIO
+}
+
+model Profile {
+  id            String         @id @default(cuid())
+  userId        String         @unique
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobTitles     String[]
+  seniority     Seniority
+  techStack     String[]
+  location      String
+  workMode      WorkMode
+  salaryMin     Int?
+  contractTypes ContractType[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Resume {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName   String
+  filePath   String
+  mimeType   String
+  size       Int
+  uploadedAt DateTime @default(now())
+}
+
+enum JobSource {
+  INDEED
+  LINKEDIN
+  REMOTIVE
+  ARBEITNOW
+  DEMO
+}
+
+enum JobBoardProvider {
+  INDEED
+  LINKEDIN
+}
+
+enum ApplicationStatus {
+  FOUND
+  QUEUED
+  APPLIED
+  EXTERNAL_REDIRECT
+  FAILED
+  SKIPPED
+}
+
+model Job {
+  id          String     @id @default(cuid())
+  source      JobSource
+  externalId  String
+  title       String
+  company     String
+  location    String
+  url         String
+  description String     @db.Text
+  workMode    WorkMode?
+  dedupeKey   String     @unique
+  fetchedAt   DateTime   @default(now())
+
+  applications Application[]
+
+  @@unique([source, externalId])
+  @@index([fetchedAt])
+}
+
+model Application {
+  id           String            @id @default(cuid())
+  userId       String
+  jobId        String
+  status       ApplicationStatus @default(FOUND)
+  matchScore   Int
+  errorMessage String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, jobId])
+  @@index([userId, status])
+  @@index([userId, createdAt])
+}
+
+model UserJobSettings {
+  id              String  @id @default(cuid())
+  userId          String  @unique
+  dailyApplyLimit Int     @default(10)
+  autoQueue       Boolean @default(true)
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model JobBoardConnection {
+  id           String          @id @default(cuid())
+  userId       String
+  provider     JobBoardProvider
+  sessionPath  String
+  connectedAt  DateTime        @default(now())
+  lastUsedAt   DateTime?
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+}

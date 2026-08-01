@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# generated / tooling
+/generated
+/test-results
+/.claude
+*:Zone.Identifier
+
+# browser session cookies for job boards
+/data/sessions
