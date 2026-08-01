@@ -13,6 +13,10 @@ PORT = "3000"
 RESUME_STORAGE_DIR = "/app/data/resumes"
 
 [phases.setup]
+# Nixpacks com NODE 22 defaultia para 22.11; Prisma 7 exige ^22.12.
+# Pin do nixpkgs com Node 22.13.1:
+# https://github.com/NixOS/nixpkgs/commit/51ad838b03a05b1de6f9f2a0fffecee64a9788ee
+nixpkgsArchive = "51ad838b03a05b1de6f9f2a0fffecee64a9788ee"
 # Ubuntu 24.04 (Noble): pacotes t64. Lista alinhada ao Playwright Chromium.
 aptPkgs = [
   "ca-certificates",
