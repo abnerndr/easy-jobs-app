@@ -21,8 +21,9 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "0"
 # Pin do nixpkgs com Node 22.13.1:
 # https://github.com/NixOS/nixpkgs/commit/51ad838b03a05b1de6f9f2a0fffecee64a9788ee
 nixpkgsArchive = "51ad838b03a05b1de6f9f2a0fffecee64a9788ee"
-# Força Yarn (não pnpm) — o projeto usa yarn.lock.
-nixPkgs = ["nodejs_22", "yarn"]
+# NÃO incluir o pacote nix "yarn": ele puxa Node 20 e quebra engines (^22.12).
+# Yarn vem via Corepack do Node 22 (ver phases.install).
+nixPkgs = ["nodejs_22"]
 # Ubuntu 24.04 (Noble): pacotes t64 + Xvfb para Chromium headed.
 aptPkgs = [
   "ca-certificates",
@@ -52,7 +53,13 @@ aptPkgs = [
 ]
 
 [phases.install]
-cmds = ["yarn install --frozen-lockfile"]
+cmds = [
+  "node -v",
+  "corepack enable",
+  "corepack prepare yarn@1.22.22 --activate",
+  "yarn -v",
+  "yarn install --frozen-lockfile",
+]
 
 [phases.build]
 cmds = [
