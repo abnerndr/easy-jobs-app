@@ -1,4 +1,5 @@
 import { chromium, type BrowserContext, type Page } from "playwright";
+import fs from "node:fs/promises";
 import type { JobBoardProvider } from "@/generated/prisma/client";
 import type { NormalizedJob, SearchQuery } from "@/lib/jobs/types";
 import { inferWorkMode, stripHtml } from "@/lib/jobs/types";
@@ -16,6 +17,125 @@ const SUCCESS_HINT: Record<JobBoardProvider, RegExp> = {
   LINKEDIN: /linkedin\.com\/(feed|jobs|in\/|mynetwork|messaging)/i,
   INDEED: /indeed\.com\/(?!auth)/i,
 };
+
+const COOKIE_DOMAINS: Record<JobBoardProvider, { domain: string; url: string }> = {
+  LINKEDIN: { domain: ".linkedin.com", url: "https://www.linkedin.com/" },
+  INDEED: { domain: ".indeed.com", url: "https://br.indeed.com/" },
+};
+
+/** Headed Chrome needs a display — unavailable in Docker/Dokploy. */
+export function canUseHeadedBrowser() {
+  if (process.env.PLAYWRIGHT_HEADED === "true") return true;
+  if (process.env.PLAYWRIGHT_HEADED === "false") return false;
+  if (process.env.DISPLAY) return true;
+  return process.platform === "darwin" || process.platform === "win32";
+}
+
+type StorageStateCookie = {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires: number;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: "Strict" | "Lax" | "None";
+};
+
+type StorageState = {
+  cookies: StorageStateCookie[];
+  origins: unknown[];
+};
+
+function parseCookieHeader(
+  raw: string,
+  provider: JobBoardProvider
+): StorageStateCookie[] {
+  const { domain } = COOKIE_DOMAINS[provider];
+  const cookies: StorageStateCookie[] = [];
+
+  for (const part of raw.split(";")) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const name = trimmed.slice(0, eq).trim();
+    const value = trimmed.slice(eq + 1).trim();
+    if (!name || !value) continue;
+    cookies.push({
+      name,
+      value,
+      domain,
+      path: "/",
+      expires: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax",
+    });
+  }
+
+  return cookies;
+}
+
+function assertAuthCookies(provider: JobBoardProvider, cookies: StorageStateCookie[]) {
+  if (cookies.length === 0) {
+    throw new Error("Nenhum cookie informado.");
+  }
+  const names = cookies.map((c) => c.name);
+  if (provider === "LINKEDIN") {
+    if (!names.some((n) => /^li_at$/i.test(n))) {
+      throw new Error(
+        "Cookie LinkedIn incompleto. Cole ao menos o cookie li_at (DevTools → Application → Cookies → linkedin.com)."
+      );
+    }
+    return;
+  }
+  // Indeed usa vários nomes de cookie de sessão; exigir ao menos um conhecido.
+  if (!names.some((n) => /^(PP|SESSUN|INDEED_CSRF_TOKEN|SHOE|CTK)$/i.test(n))) {
+    throw new Error(
+      "Cookie Indeed incompleto. Cole cookies de sessão do indeed.com (ex.: PP=...; CTK=...)."
+    );
+  }
+}
+
+/**
+ * Persists a Playwright storageState (or cookie header string) for later
+ * headless scraping. Use this in production where headed login is impossible.
+ */
+export async function importJobBoardSession(
+  userId: string,
+  provider: JobBoardProvider,
+  input: { cookies?: string; storageState?: unknown }
+) {
+  await ensureSessionsDir(userId);
+  const outPath = sessionFilePath(userId, provider);
+
+  let state: StorageState;
+
+  if (input.storageState != null) {
+    const parsed =
+      typeof input.storageState === "string"
+        ? (JSON.parse(input.storageState) as StorageState)
+        : (input.storageState as StorageState);
+    if (!parsed?.cookies || !Array.isArray(parsed.cookies)) {
+      throw new Error("storageState inválido: esperado JSON com campo cookies.");
+    }
+    state = {
+      cookies: parsed.cookies as StorageStateCookie[],
+      origins: Array.isArray(parsed.origins) ? parsed.origins : [],
+    };
+  } else if (input.cookies?.trim()) {
+    const cookies = parseCookieHeader(input.cookies, provider);
+    assertAuthCookies(provider, cookies);
+    state = { cookies, origins: [] };
+  } else {
+    throw new Error("Informe cookies ou storageState para importar a sessão.");
+  }
+
+  assertAuthCookies(provider, state.cookies);
+  await fs.writeFile(outPath, JSON.stringify(state, null, 2), "utf8");
+  return outPath;
+}
 
 function englishSearchTerms(query: SearchQuery) {
   const map: Record<string, string> = {
@@ -51,9 +171,11 @@ async function launchContext(
   storageState?: string,
   options?: { headless?: boolean }
 ): Promise<BrowserContext> {
+  const headless = options?.headless ?? true;
   const browser = await chromium.launch({
-    headless: options?.headless ?? true,
+    headless,
     channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
+    args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   return browser.newContext({
     storageState: storageState,
@@ -63,14 +185,20 @@ async function launchContext(
 }
 
 /**
- * Opens a headed browser for the user to log in. Saves Playwright storageState
- * when the URL indicates a successful session (or after timeout if cookies exist).
+ * Opens a headed browser for the user to log in (local machine with display).
+ * Em produção/Dokploy use o fluxo remoto em /api/connections/[provider]/remote.
  */
 export async function connectJobBoard(
   userId: string,
   provider: JobBoardProvider,
   options?: { timeoutMs?: number }
 ) {
+  if (!canUseHeadedBrowser()) {
+    throw new Error(
+      "Sem display gráfico. Use o login remoto no painel (Conectar LinkedIn/Indeed)."
+    );
+  }
+
   const timeoutMs = options?.timeoutMs ?? 5 * 60_000;
   await ensureSessionsDir(userId);
   const outPath = sessionFilePath(userId, provider);

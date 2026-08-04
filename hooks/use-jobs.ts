@@ -52,6 +52,13 @@ export type BoardConnection = {
   lastUsedAt: string | null;
 };
 
+export type ConnectBoardInput = {
+  provider: "linkedin" | "indeed";
+  mode?: "browser" | "import";
+  cookies?: string;
+  storageState?: unknown;
+};
+
 async function fetchConnections() {
   const response = await fetch("/api/connections");
   if (!response.ok) throw new Error("Erro ao carregar conexões.");
@@ -61,15 +68,27 @@ async function fetchConnections() {
   }>;
 }
 
-async function connectBoard(provider: "linkedin" | "indeed") {
+async function connectBoard(input: ConnectBoardInput | "linkedin" | "indeed") {
+  const payload: ConnectBoardInput =
+    typeof input === "string" ? { provider: input } : input;
+  const { provider, ...body } = payload;
   const response = await fetch(`/api/connections/${provider}`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
-  const body = await response.json();
+  const responseBody = await response.json();
   if (!response.ok) {
-    throw new Error(body?.error?.message ?? body?.error ?? "Falha ao conectar.");
+    throw new Error(
+      responseBody?.error?.message ?? responseBody?.error ?? "Falha ao conectar."
+    );
   }
-  return body as { provider: string; connected: boolean; message: string };
+  return responseBody as {
+    provider: string;
+    connected: boolean;
+    message: string;
+    mode?: string;
+  };
 }
 
 async function disconnectBoard(provider: "linkedin" | "indeed") {

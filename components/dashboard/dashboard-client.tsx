@@ -48,7 +48,6 @@ import { useProfileQuery } from "@/hooks/use-profile";
 import {
   useApplySelectedJobsMutation,
   useClearDemoJobsMutation,
-  useConnectBoardMutation,
   useConnectionsQuery,
   useDeleteSelectedJobsMutation,
   useDisconnectBoardMutation,
@@ -59,6 +58,13 @@ import {
 } from "@/hooks/use-jobs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { RemoteLoginViewer } from "@/components/dashboard/remote-login-viewer";
+
+type RemoteSession = {
+  provider: "linkedin" | "indeed";
+  sessionId: string;
+  viewport: { width: number; height: number };
+};
 
 export function DashboardClient() {
   const profileQuery = useProfileQuery();
@@ -70,14 +76,14 @@ export function DashboardClient() {
   const deleteSelectedMutation = useDeleteSelectedJobsMutation();
   const applySelectedMutation = useApplySelectedJobsMutation();
   const saveSettings = useSaveJobSettingsMutation();
-  const connectMutation = useConnectBoardMutation();
   const disconnectMutation = useDisconnectBoardMutation();
 
   const [limitDraft, setLimitDraft] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [connectingProvider, setConnectingProvider] = useState<
+  const [startingProvider, setStartingProvider] = useState<
     "linkedin" | "indeed" | null
   >(null);
+  const [remoteSession, setRemoteSession] = useState<RemoteSession | null>(null);
 
   const profile = profileQuery.data;
   const usage = settingsQuery.data?.usage;
@@ -132,19 +138,36 @@ export function DashboardClient() {
   }
 
   async function handleConnect(provider: "linkedin" | "indeed") {
-    setConnectingProvider(provider);
+    setStartingProvider(provider);
     toast.message(
-      `Abrindo Chrome para login no ${provider === "linkedin" ? "LinkedIn" : "Indeed"}…`,
-      { description: "Faça login na janela e aguarde a confirmação (até 5 min)." }
+      `Abrindo navegador para login no ${provider === "linkedin" ? "LinkedIn" : "Indeed"}…`
     );
     try {
-      const result = await connectMutation.mutateAsync(provider);
-      toast.success(result.message);
+      const response = await fetch(`/api/connections/${provider}/remote`, {
+        method: "POST",
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Falha ao abrir navegador.");
+      }
+      setRemoteSession({
+        provider,
+        sessionId: body.sessionId as string,
+        viewport: body.viewport as { width: number; height: number },
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao conectar.");
     } finally {
-      setConnectingProvider(null);
+      setStartingProvider(null);
     }
+  }
+
+  function handleRemoteConnected() {
+    const label =
+      remoteSession?.provider === "indeed" ? "Indeed" : "LinkedIn";
+    setRemoteSession(null);
+    void connectionsQuery.refetch();
+    toast.success(`${label} conectado.`);
   }
 
   async function handleDisconnect(provider: "linkedin" | "indeed") {
@@ -272,76 +295,92 @@ export function DashboardClient() {
         <CardHeader>
           <CardTitle>Contas das plataformas</CardTitle>
           <CardDescription>
-            Ao clicar em Conectar, abre um Chrome controlado pelo app. Faça login
-            normalmente; a sessão fica salva só neste servidor.
+            Ao conectar, o app abre um Chrome no servidor e mostra a tela aqui
+            para você fazer login. A sessão fica salva só neste servidor.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <div className="flex flex-col gap-3 rounded-xl border p-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="font-medium">LinkedIn</p>
-              <Badge variant={linkedIn?.connected ? "default" : "secondary"}>
-                {linkedIn?.connected ? "Conectado" : "Desconectado"}
-              </Badge>
-            </div>
-            {linkedIn?.connected ? (
-              <Button
-                variant="outline"
-                onClick={() => handleDisconnect("linkedin")}
-                disabled={disconnectMutation.isPending}
-              >
-                <UnlinkIcon data-icon="inline-start" />
-                Desconectar
-              </Button>
-            ) : (
-              <Button
-                onClick={() => handleConnect("linkedin")}
-                disabled={connectingProvider !== null}
-              >
-                {connectingProvider === "linkedin" ? (
-                  <Spinner data-icon="inline-start" />
+        <CardContent className="flex flex-col gap-4">
+          {remoteSession ? (
+            <RemoteLoginViewer
+              provider={remoteSession.provider}
+              sessionId={remoteSession.sessionId}
+              viewport={remoteSession.viewport}
+              onConnected={handleRemoteConnected}
+              onCancel={() => setRemoteSession(null)}
+              onError={(message) => {
+                setRemoteSession(null);
+                toast.error(message);
+              }}
+            />
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="flex flex-col gap-3 rounded-xl border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium">LinkedIn</p>
+                  <Badge variant={linkedIn?.connected ? "default" : "secondary"}>
+                    {linkedIn?.connected ? "Conectado" : "Desconectado"}
+                  </Badge>
+                </div>
+                {linkedIn?.connected ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleDisconnect("linkedin")}
+                    disabled={disconnectMutation.isPending}
+                  >
+                    <UnlinkIcon data-icon="inline-start" />
+                    Desconectar
+                  </Button>
                 ) : (
-                  <Link2Icon data-icon="inline-start" />
+                  <Button
+                    onClick={() => handleConnect("linkedin")}
+                    disabled={startingProvider !== null}
+                  >
+                    {startingProvider === "linkedin" ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <Link2Icon data-icon="inline-start" />
+                    )}
+                    {startingProvider === "linkedin"
+                      ? "Abrindo navegador…"
+                      : "Conectar LinkedIn"}
+                  </Button>
                 )}
-                {connectingProvider === "linkedin"
-                  ? "Aguardando login…"
-                  : "Conectar LinkedIn"}
-              </Button>
-            )}
-          </div>
+              </div>
 
-          <div className="flex flex-col gap-3 rounded-xl border p-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="font-medium">Indeed</p>
-              <Badge variant={indeed?.connected ? "default" : "secondary"}>
-                {indeed?.connected ? "Conectado" : "Desconectado"}
-              </Badge>
-            </div>
-            {indeed?.connected ? (
-              <Button
-                variant="outline"
-                onClick={() => handleDisconnect("indeed")}
-                disabled={disconnectMutation.isPending}
-              >
-                <UnlinkIcon data-icon="inline-start" />
-                Desconectar
-              </Button>
-            ) : (
-              <Button
-                onClick={() => handleConnect("indeed")}
-                disabled={connectingProvider !== null}
-              >
-                {connectingProvider === "indeed" ? (
-                  <Spinner data-icon="inline-start" />
+              <div className="flex flex-col gap-3 rounded-xl border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium">Indeed</p>
+                  <Badge variant={indeed?.connected ? "default" : "secondary"}>
+                    {indeed?.connected ? "Conectado" : "Desconectado"}
+                  </Badge>
+                </div>
+                {indeed?.connected ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleDisconnect("indeed")}
+                    disabled={disconnectMutation.isPending}
+                  >
+                    <UnlinkIcon data-icon="inline-start" />
+                    Desconectar
+                  </Button>
                 ) : (
-                  <Link2Icon data-icon="inline-start" />
+                  <Button
+                    onClick={() => handleConnect("indeed")}
+                    disabled={startingProvider !== null}
+                  >
+                    {startingProvider === "indeed" ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <Link2Icon data-icon="inline-start" />
+                    )}
+                    {startingProvider === "indeed"
+                      ? "Abrindo navegador…"
+                      : "Conectar Indeed"}
+                  </Button>
                 )}
-                {connectingProvider === "indeed"
-                  ? "Aguardando login…"
-                  : "Conectar Indeed"}
-              </Button>
-            )}
-          </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
