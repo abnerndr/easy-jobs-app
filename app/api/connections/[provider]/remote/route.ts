@@ -5,7 +5,7 @@ import { errorResponse } from "@/lib/api-response";
 import {
   cancelRemoteLogin,
   getRemoteLoginStatus,
-  startRemoteLogin,
+  loginWithCredentials,
 } from "@/lib/jobs/remote-login";
 import type { JobBoardProvider } from "@/generated/prisma/client";
 
@@ -15,6 +15,11 @@ export const dynamic = "force-dynamic";
 const PROVIDERS = new Set(["LINKEDIN", "INDEED"]);
 
 type Params = { params: Promise<{ provider: string }> };
+
+type ConnectBody = {
+  email?: string;
+  password?: string;
+};
 
 async function upsertConnection(
   userId: string,
@@ -28,7 +33,7 @@ async function upsertConnection(
   });
 }
 
-export async function POST(_request: Request, { params }: Params) {
+export async function POST(request: Request, { params }: Params) {
   const session = await requireApiSession();
   if (!session) return errorResponse("Não autenticado.", 401);
 
@@ -38,22 +43,41 @@ export async function POST(_request: Request, { params }: Params) {
     return errorResponse("Provedor inválido.", 400);
   }
 
+  let body: ConnectBody = {};
   try {
-    const started = await startRemoteLogin(
+    body = (await request.json()) as ConnectBody;
+  } catch {
+    return errorResponse("JSON inválido. Envie email e password.", 400);
+  }
+
+  if (!body.email?.trim() || !body.password) {
+    return errorResponse("Informe e-mail e senha da conta.", 400);
+  }
+
+  try {
+    const sessionPath = await loginWithCredentials(
       session.user.id,
       provider as JobBoardProvider,
-      { timeoutMs: 5 * 60_000 }
+      { email: body.email, password: body.password }
     );
+
+    await upsertConnection(
+      session.user.id,
+      provider as JobBoardProvider,
+      sessionPath
+    );
+
     return NextResponse.json({
-      ...started,
-      message: "Faça login na janela abaixo.",
+      provider,
+      connected: true,
+      message: `${provider} conectado. Agora você pode buscar vagas.`,
     });
   } catch (error) {
-    console.error("remote login start failed", error);
+    console.error("credential login failed", error);
     return errorResponse(
       error instanceof Error
         ? error.message
-        : "Não foi possível abrir o navegador de login.",
+        : "Não foi possível fazer login.",
       500
     );
   }

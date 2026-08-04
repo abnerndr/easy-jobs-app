@@ -311,4 +311,150 @@ export async function cancelRemoteLogin(sessionId: string, userId: string) {
   await destroySession(session);
 }
 
+/**
+ * Faz login automático com email/senha preenchidos pelo usuário no painel.
+ * A senha NÃO é persistida — só usada nesta execução do Playwright.
+ */
+export async function loginWithCredentials(
+  userId: string,
+  provider: JobBoardProvider,
+  credentials: { email: string; password: string }
+) {
+  const email = credentials.email.trim();
+  const password = credentials.password;
+  if (!email || !password) {
+    throw new Error("Informe e-mail e senha.");
+  }
+
+  await closeExisting(userId, provider);
+
+  const headed = launchHeadedPreferred();
+  const browser = await chromium.launch({
+    headless: !headed,
+    channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
+    args: ["--no-sandbox", "--disable-dev-shm-usage", "--window-size=1280,900"],
+  });
+
+  const context = await browser.newContext({
+    locale: "pt-BR",
+    viewport: VIEWPORT,
+    userAgent:
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  });
+
+  try {
+    const page = await context.newPage();
+    await page.goto(LOGIN_URL[provider], {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+
+    if (provider === "LINKEDIN") {
+      await fillLinkedInLogin(page, email, password);
+    } else {
+      await fillIndeedLogin(page, email, password);
+    }
+
+    // Aguarda redirecionamento / cookie de sessão (até ~90s — 2FA pode demorar)
+    const deadline = Date.now() + 90_000;
+    let connected = false;
+    while (Date.now() < deadline) {
+      await page.waitForTimeout(1500);
+      const url = page.url();
+
+      if (/checkpoint|challenge|captcha|two-step|verification/i.test(url)) {
+        throw new Error(
+          "LinkedIn/Indeed pediu verificação extra (2FA/CAPTCHA). Desative temporariamente ou conclua no app oficial e tente de novo."
+        );
+      }
+
+      if (SUCCESS_HINT[provider].test(url)) {
+        connected = true;
+        break;
+      }
+
+      const cookies = await context.cookies();
+      const hasAuth = cookies.some((c) =>
+        provider === "LINKEDIN"
+          ? /li_at/i.test(c.name)
+          : /^(PP|SESSUN|CTK|SHOE)$/i.test(c.name)
+      );
+      if (hasAuth && !/login|auth|uas\/login/i.test(url)) {
+        connected = true;
+        break;
+      }
+
+      // Mensagem de erro na página de login
+      const errorText =
+        (await page
+          .locator("#error-for-password, #error-for-username, .form__label--error, [role='alert']")
+          .first()
+          .textContent()
+          .catch(() => null))?.trim() || "";
+      if (errorText && /senha|password|email|incorrect|inválid|invalid|wrong/i.test(errorText)) {
+        throw new Error(`Login rejeitado: ${errorText}`);
+      }
+    }
+
+    if (!connected) {
+      throw new Error(
+        "Login não concluído a tempo. Confira e-mail/senha ou se há verificação em duas etapas."
+      );
+    }
+
+    await ensureSessionsDir(userId);
+    const outPath = sessionFilePath(userId, provider);
+    await context.storageState({ path: outPath });
+    return outPath;
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}
+
+async function fillLinkedInLogin(page: Page, email: string, password: string) {
+  const user = page.locator("#username, input[name='session_key']").first();
+  const pass = page.locator("#password, input[name='session_password']").first();
+  await user.waitFor({ state: "visible", timeout: 30_000 });
+  await user.fill(email);
+  await pass.fill(password);
+  await page
+    .locator("button[type='submit'], button[data-litms-control-urn='login-submit']")
+    .first()
+    .click();
+}
+
+async function fillIndeedLogin(page: Page, email: string, password: string) {
+  // Indeed costuma pedir e-mail primeiro, depois senha.
+  const emailInput = page
+    .locator(
+      'input[type="email"], input[name="email"], input[name="__email"], #ifl-InputFormField-3'
+    )
+    .first();
+  await emailInput.waitFor({ state: "visible", timeout: 30_000 });
+  await emailInput.fill(email);
+
+  const continueBtn = page
+    .locator(
+      'button[type="submit"], button:has-text("Continuar"), button:has-text("Continue")'
+    )
+    .first();
+  if (await continueBtn.isVisible().catch(() => false)) {
+    await continueBtn.click();
+    await page.waitForTimeout(1500);
+  }
+
+  const passInput = page
+    .locator('input[type="password"], input[name="password"], input[name="__password"]')
+    .first();
+  await passInput.waitFor({ state: "visible", timeout: 30_000 });
+  await passInput.fill(password);
+
+  await page
+    .locator(
+      'button[type="submit"], button:has-text("Entrar"), button:has-text("Sign in"), button:has-text("Log in")'
+    )
+    .first()
+    .click();
+}
+
 export { LOGIN_URL, SUCCESS_HINT, VIEWPORT };

@@ -58,13 +58,6 @@ import {
 } from "@/hooks/use-jobs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { RemoteLoginViewer } from "@/components/dashboard/remote-login-viewer";
-
-type RemoteSession = {
-  provider: "linkedin" | "indeed";
-  sessionId: string;
-  viewport: { width: number; height: number };
-};
 
 export function DashboardClient() {
   const profileQuery = useProfileQuery();
@@ -83,7 +76,10 @@ export function DashboardClient() {
   const [startingProvider, setStartingProvider] = useState<
     "linkedin" | "indeed" | null
   >(null);
-  const [remoteSession, setRemoteSession] = useState<RemoteSession | null>(null);
+  const [linkedinEmail, setLinkedinEmail] = useState("");
+  const [linkedinPassword, setLinkedinPassword] = useState("");
+  const [indeedEmail, setIndeedEmail] = useState("");
+  const [indeedPassword, setIndeedPassword] = useState("");
 
   const profile = profileQuery.data;
   const usage = settingsQuery.data?.usage;
@@ -138,36 +134,40 @@ export function DashboardClient() {
   }
 
   async function handleConnect(provider: "linkedin" | "indeed") {
+    const email =
+      provider === "linkedin" ? linkedinEmail.trim() : indeedEmail.trim();
+    const password =
+      provider === "linkedin" ? linkedinPassword : indeedPassword;
+
+    if (!email || !password) {
+      toast.error("Preencha e-mail e senha para conectar.");
+      return;
+    }
+
     setStartingProvider(provider);
     toast.message(
-      `Abrindo navegador para login no ${provider === "linkedin" ? "LinkedIn" : "Indeed"}…`
+      `Entrando no ${provider === "linkedin" ? "LinkedIn" : "Indeed"}…`,
+      { description: "O Playwright preenche o formulário e clica em entrar." }
     );
     try {
       const response = await fetch(`/api/connections/${provider}/remote`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
       });
       const body = await response.json();
       if (!response.ok) {
-        throw new Error(body?.error ?? "Falha ao abrir navegador.");
+        throw new Error(body?.error ?? "Falha ao conectar.");
       }
-      setRemoteSession({
-        provider,
-        sessionId: body.sessionId as string,
-        viewport: body.viewport as { width: number; height: number },
-      });
+      if (provider === "linkedin") setLinkedinPassword("");
+      else setIndeedPassword("");
+      void connectionsQuery.refetch();
+      toast.success(body.message ?? "Conectado.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao conectar.");
     } finally {
       setStartingProvider(null);
     }
-  }
-
-  function handleRemoteConnected() {
-    const label =
-      remoteSession?.provider === "indeed" ? "Indeed" : "LinkedIn";
-    setRemoteSession(null);
-    void connectionsQuery.refetch();
-    toast.success(`${label} conectado.`);
   }
 
   async function handleDisconnect(provider: "linkedin" | "indeed") {
@@ -295,92 +295,128 @@ export function DashboardClient() {
         <CardHeader>
           <CardTitle>Contas das plataformas</CardTitle>
           <CardDescription>
-            Ao conectar, o app abre um Chrome no servidor e mostra a tela aqui
-            para você fazer login. A sessão fica salva só neste servidor.
+            Informe e-mail e senha. O app abre o LinkedIn/Indeed no servidor,
+            preenche o login e salva a sessão (a senha não fica armazenada).
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {remoteSession ? (
-            <RemoteLoginViewer
-              provider={remoteSession.provider}
-              sessionId={remoteSession.sessionId}
-              viewport={remoteSession.viewport}
-              onConnected={handleRemoteConnected}
-              onCancel={() => setRemoteSession(null)}
-              onError={(message) => {
-                setRemoteSession(null);
-                toast.error(message);
-              }}
-            />
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="flex flex-col gap-3 rounded-xl border p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium">LinkedIn</p>
-                  <Badge variant={linkedIn?.connected ? "default" : "secondary"}>
-                    {linkedIn?.connected ? "Conectado" : "Desconectado"}
-                  </Badge>
-                </div>
-                {linkedIn?.connected ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleDisconnect("linkedin")}
-                    disabled={disconnectMutation.isPending}
-                  >
-                    <UnlinkIcon data-icon="inline-start" />
-                    Desconectar
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={() => handleConnect("linkedin")}
-                    disabled={startingProvider !== null}
-                  >
-                    {startingProvider === "linkedin" ? (
-                      <Spinner data-icon="inline-start" />
-                    ) : (
-                      <Link2Icon data-icon="inline-start" />
-                    )}
-                    {startingProvider === "linkedin"
-                      ? "Abrindo navegador…"
-                      : "Conectar LinkedIn"}
-                  </Button>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-3 rounded-xl border p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium">Indeed</p>
-                  <Badge variant={indeed?.connected ? "default" : "secondary"}>
-                    {indeed?.connected ? "Conectado" : "Desconectado"}
-                  </Badge>
-                </div>
-                {indeed?.connected ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleDisconnect("indeed")}
-                    disabled={disconnectMutation.isPending}
-                  >
-                    <UnlinkIcon data-icon="inline-start" />
-                    Desconectar
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={() => handleConnect("indeed")}
-                    disabled={startingProvider !== null}
-                  >
-                    {startingProvider === "indeed" ? (
-                      <Spinner data-icon="inline-start" />
-                    ) : (
-                      <Link2Icon data-icon="inline-start" />
-                    )}
-                    {startingProvider === "indeed"
-                      ? "Abrindo navegador…"
-                      : "Conectar Indeed"}
-                  </Button>
-                )}
-              </div>
+        <CardContent className="grid gap-4 md:grid-cols-2">
+          <div className="flex flex-col gap-3 rounded-xl border p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-medium">LinkedIn</p>
+              <Badge variant={linkedIn?.connected ? "default" : "secondary"}>
+                {linkedIn?.connected ? "Conectado" : "Desconectado"}
+              </Badge>
             </div>
-          )}
+            {linkedIn?.connected ? (
+              <Button
+                variant="outline"
+                onClick={() => handleDisconnect("linkedin")}
+                disabled={disconnectMutation.isPending}
+              >
+                <UnlinkIcon data-icon="inline-start" />
+                Desconectar
+              </Button>
+            ) : (
+              <>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="linkedin-email">E-mail</FieldLabel>
+                    <Input
+                      id="linkedin-email"
+                      type="email"
+                      autoComplete="username"
+                      value={linkedinEmail}
+                      onChange={(e) => setLinkedinEmail(e.target.value)}
+                      placeholder="seu@email.com"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="linkedin-password">Senha</FieldLabel>
+                    <Input
+                      id="linkedin-password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={linkedinPassword}
+                      onChange={(e) => setLinkedinPassword(e.target.value)}
+                      placeholder="••••••••"
+                    />
+                  </Field>
+                </FieldGroup>
+                <Button
+                  onClick={() => handleConnect("linkedin")}
+                  disabled={startingProvider !== null}
+                >
+                  {startingProvider === "linkedin" ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <Link2Icon data-icon="inline-start" />
+                  )}
+                  {startingProvider === "linkedin"
+                    ? "Entrando…"
+                    : "Conectar LinkedIn"}
+                </Button>
+              </>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-xl border p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-medium">Indeed</p>
+              <Badge variant={indeed?.connected ? "default" : "secondary"}>
+                {indeed?.connected ? "Conectado" : "Desconectado"}
+              </Badge>
+            </div>
+            {indeed?.connected ? (
+              <Button
+                variant="outline"
+                onClick={() => handleDisconnect("indeed")}
+                disabled={disconnectMutation.isPending}
+              >
+                <UnlinkIcon data-icon="inline-start" />
+                Desconectar
+              </Button>
+            ) : (
+              <>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="indeed-email">E-mail</FieldLabel>
+                    <Input
+                      id="indeed-email"
+                      type="email"
+                      autoComplete="username"
+                      value={indeedEmail}
+                      onChange={(e) => setIndeedEmail(e.target.value)}
+                      placeholder="seu@email.com"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="indeed-password">Senha</FieldLabel>
+                    <Input
+                      id="indeed-password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={indeedPassword}
+                      onChange={(e) => setIndeedPassword(e.target.value)}
+                      placeholder="••••••••"
+                    />
+                  </Field>
+                </FieldGroup>
+                <Button
+                  onClick={() => handleConnect("indeed")}
+                  disabled={startingProvider !== null}
+                >
+                  {startingProvider === "indeed" ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <Link2Icon data-icon="inline-start" />
+                  )}
+                  {startingProvider === "indeed"
+                    ? "Entrando…"
+                    : "Conectar Indeed"}
+                </Button>
+              </>
+            )}
+          </div>
         </CardContent>
       </Card>
 
