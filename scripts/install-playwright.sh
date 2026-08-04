@@ -20,8 +20,21 @@ fi
 
 chromium_installed() {
   # Diretórios típicos: chromium-1234, chromium_headless_shell-1234
-  compgen -G "${PLAYWRIGHT_BROWSERS_PATH}/chromium-*" > /dev/null 2>&1 \
-    || compgen -G "${PLAYWRIGHT_BROWSERS_PATH}/chromium_headless_shell-*" > /dev/null 2>&1
+  # Também cobre cache default do usuário (~/.cache/ms-playwright).
+  local paths=(
+    "${PLAYWRIGHT_BROWSERS_PATH}"
+    "${HOME}/.cache/ms-playwright"
+    "/root/.cache/ms-playwright"
+  )
+  local base
+  for base in "${paths[@]}"; do
+    [[ -d "$base" ]] || continue
+    if compgen -G "${base}/chromium-*" > /dev/null 2>&1 \
+      || compgen -G "${base}/chromium_headless_shell-*" > /dev/null 2>&1; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 if chromium_installed; then

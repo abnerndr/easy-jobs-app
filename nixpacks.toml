@@ -1,7 +1,6 @@
 # Dokploy → Application → Build Type: Nixpacks
 # Port: 3000
 # Docs: https://nixpacks.com/docs/configuration/file
-# Dokploy: https://docs.dokploy.com/docs/core/applications/build-type
 
 [variables]
 NODE_ENV = "production"
@@ -11,13 +10,20 @@ NPM_CONFIG_PRODUCTION = "false"
 YARN_PRODUCTION = "false"
 PORT = "3000"
 RESUME_STORAGE_DIR = "/app/data/resumes"
+PLAYWRIGHT_BROWSERS_PATH = "/ms-playwright"
+DISPLAY = ":99"
+PLAYWRIGHT_HEADED = "true"
+# Evita redownload no start; install só no build.
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "0"
 
 [phases.setup]
 # Nixpacks com NODE 22 defaultia para 22.11; Prisma 7 exige ^22.12.
 # Pin do nixpkgs com Node 22.13.1:
 # https://github.com/NixOS/nixpkgs/commit/51ad838b03a05b1de6f9f2a0fffecee64a9788ee
 nixpkgsArchive = "51ad838b03a05b1de6f9f2a0fffecee64a9788ee"
-# Ubuntu 24.04 (Noble): pacotes t64. Lista alinhada ao Playwright Chromium.
+# Força Yarn (não pnpm) — o projeto usa yarn.lock.
+nixPkgs = ["nodejs_22", "yarn"]
+# Ubuntu 24.04 (Noble): pacotes t64 + Xvfb para Chromium headed.
 aptPkgs = [
   "ca-certificates",
   "fonts-liberation",
@@ -42,6 +48,7 @@ aptPkgs = [
   "libxkbcommon0",
   "libxrandr2",
   "xdg-utils",
+  "xvfb",
 ]
 
 [phases.install]
@@ -50,11 +57,11 @@ cmds = ["yarn install --frozen-lockfile"]
 [phases.build]
 cmds = [
   # prisma.config.ts exige DATABASE_URL; generate não conecta no banco.
-  # Se o Dokploy já injetar DATABASE_URL no build, ela é reutilizada.
   "sh -c 'export DATABASE_URL=\"${DATABASE_URL:-postgresql://build:build@127.0.0.1:5432/build?schema=public}\"; yarn prisma generate'",
   "yarn build",
-  "npx playwright install chromium",
+  # Instala Chromium só se ainda não existir (scripts/install-playwright.sh).
+  "chmod +x scripts/install-playwright.sh && PLAYWRIGHT_SKIP_DEPS=1 ./scripts/install-playwright.sh",
 ]
 
 [start]
-cmd = "mkdir -p \"$RESUME_STORAGE_DIR\" && yarn prisma:migrate && yarn start"
+cmd = "mkdir -p \"$RESUME_STORAGE_DIR\" /app/data/sessions && (test -f /tmp/.X99-lock || Xvfb :99 -screen 0 1280x900x24 -ac >/tmp/xvfb.log 2>&1 &) && yarn prisma:migrate && yarn start"

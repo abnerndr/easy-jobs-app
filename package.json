@@ -2,6 +2,7 @@
   "name": "easy-job-app",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "yarn@1.22.22",
   "engines": {
     "node": "^20.19 || ^22.12 || >=24.0"
   },
