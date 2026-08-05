@@ -6,6 +6,7 @@ import {
   cancelRemoteLogin,
   getRemoteLoginStatus,
   loginWithCredentials,
+  submitChallengeCode,
 } from "@/lib/jobs/remote-login";
 import type { JobBoardProvider } from "@/generated/prisma/client";
 
@@ -19,6 +20,8 @@ type Params = { params: Promise<{ provider: string }> };
 type ConnectBody = {
   email?: string;
   password?: string;
+  sessionId?: string;
+  challengeCode?: string;
 };
 
 async function upsertConnection(
@@ -47,37 +50,66 @@ export async function POST(request: Request, { params }: Params) {
   try {
     body = (await request.json()) as ConnectBody;
   } catch {
-    return errorResponse("JSON inválido. Envie email e password.", 400);
-  }
-
-  if (!body.email?.trim() || !body.password) {
-    return errorResponse("Informe e-mail e senha da conta.", 400);
+    return errorResponse("JSON inválido.", 400);
   }
 
   try {
-    const sessionPath = await loginWithCredentials(
+    // Etapa 2: código 2FA / PIN
+    if (body.sessionId && body.challengeCode) {
+      const result = await submitChallengeCode(
+        body.sessionId,
+        session.user.id,
+        body.challengeCode
+      );
+      await upsertConnection(
+        session.user.id,
+        provider as JobBoardProvider,
+        result.sessionPath
+      );
+      return NextResponse.json({
+        provider,
+        connected: true,
+        status: "connected",
+        message: `${provider} conectado após verificação.`,
+      });
+    }
+
+    if (!body.email?.trim() || !body.password) {
+      return errorResponse("Informe e-mail e senha da conta.", 400);
+    }
+
+    const result = await loginWithCredentials(
       session.user.id,
       provider as JobBoardProvider,
       { email: body.email, password: body.password }
     );
 
+    if (result.status === "needs_challenge") {
+      return NextResponse.json({
+        provider,
+        connected: false,
+        status: "needs_challenge",
+        sessionId: result.sessionId,
+        message: result.message,
+      });
+    }
+
     await upsertConnection(
       session.user.id,
       provider as JobBoardProvider,
-      sessionPath
+      result.sessionPath
     );
 
     return NextResponse.json({
       provider,
       connected: true,
+      status: "connected",
       message: `${provider} conectado. Agora você pode buscar vagas.`,
     });
   } catch (error) {
     console.error("credential login failed", error);
     return errorResponse(
-      error instanceof Error
-        ? error.message
-        : "Não foi possível fazer login.",
+      error instanceof Error ? error.message : "Não foi possível fazer login.",
       500
     );
   }
