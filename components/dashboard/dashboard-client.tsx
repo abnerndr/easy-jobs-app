@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Card,
   CardContent,
@@ -48,6 +49,7 @@ import { useProfileQuery } from "@/hooks/use-profile";
 import {
   useApplySelectedJobsMutation,
   useClearDemoJobsMutation,
+  useConnectBoardMutation,
   useConnectionsQuery,
   useDeleteSelectedJobsMutation,
   useDisconnectBoardMutation,
@@ -69,6 +71,7 @@ export function DashboardClient() {
   const deleteSelectedMutation = useDeleteSelectedJobsMutation();
   const applySelectedMutation = useApplySelectedJobsMutation();
   const saveSettings = useSaveJobSettingsMutation();
+  const connectMutation = useConnectBoardMutation();
   const disconnectMutation = useDisconnectBoardMutation();
 
   const [limitDraft, setLimitDraft] = useState<string | null>(null);
@@ -76,6 +79,12 @@ export function DashboardClient() {
   const [startingProvider, setStartingProvider] = useState<
     "linkedin" | "indeed" | null
   >(null);
+  const [linkedinCookies, setLinkedinCookies] = useState("");
+  const [indeedCookies, setIndeedCookies] = useState("");
+  const [showPasswordLogin, setShowPasswordLogin] = useState<{
+    linkedin: boolean;
+    indeed: boolean;
+  }>({ linkedin: false, indeed: false });
   const [linkedinEmail, setLinkedinEmail] = useState("");
   const [linkedinPassword, setLinkedinPassword] = useState("");
   const [indeedEmail, setIndeedEmail] = useState("");
@@ -139,6 +148,39 @@ export function DashboardClient() {
     }
   }
 
+  async function handleImportCookies(provider: "linkedin" | "indeed") {
+    const cookies =
+      provider === "linkedin" ? linkedinCookies.trim() : indeedCookies.trim();
+    if (!cookies) {
+      toast.error(
+        provider === "linkedin"
+          ? "Cole o cookie li_at (ou o JSON exportado)."
+          : "Cole os cookies de sessão do Indeed."
+      );
+      return;
+    }
+
+    setStartingProvider(provider);
+    toast.message(
+      `Importando sessão do ${provider === "linkedin" ? "LinkedIn" : "Indeed"}…`
+    );
+    try {
+      const result = await connectMutation.mutateAsync({
+        provider,
+        mode: "import",
+        cookies,
+      });
+      if (provider === "linkedin") setLinkedinCookies("");
+      else setIndeedCookies("");
+      void connectionsQuery.refetch();
+      toast.success(result.message ?? "Conectado.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao importar.");
+    } finally {
+      setStartingProvider(null);
+    }
+  }
+
   async function handleConnect(provider: "linkedin" | "indeed") {
     const email =
       provider === "linkedin" ? linkedinEmail.trim() : indeedEmail.trim();
@@ -155,7 +197,10 @@ export function DashboardClient() {
     setChallengeCode("");
     toast.message(
       `Entrando no ${provider === "linkedin" ? "LinkedIn" : "Indeed"}…`,
-      { description: "O Playwright preenche o formulário e clica em entrar." }
+      {
+        description:
+          "Login automático no servidor costuma falhar. Prefira importar cookies.",
+      }
     );
     try {
       const response = await fetch(`/api/connections/${provider}/remote`, {
@@ -361,8 +406,8 @@ export function DashboardClient() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Painel</h1>
           <p className="text-muted-foreground max-w-2xl text-sm">
-            Conecte LinkedIn e/ou Indeed com login real. Só depois a busca de vagas
-            é liberada.
+            Conecte LinkedIn e/ou Indeed importando a sessão do seu navegador. Só
+            depois a busca de vagas é liberada.
           </p>
         </div>
         <Button variant="outline" asChild>
@@ -374,12 +419,24 @@ export function DashboardClient() {
         <CardHeader>
           <CardTitle>Contas das plataformas</CardTitle>
           <CardDescription>
-            Informe e-mail e senha. O app preenche o login no LinkedIn/Indeed e
-            salva a sessão (a senha não fica armazenada). Se pedir código 2FA,
-            digite aqui.
+            Faça login no LinkedIn/Indeed no seu navegador e cole os cookies da
+            sessão aqui. OAuth não libera busca nem Easy Apply — a sessão web é
+            necessária.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
+          <Alert>
+            <AlertTitle>Como pegar o cookie (LinkedIn)</AlertTitle>
+            <AlertDescription className="text-muted-foreground text-sm">
+              1) Abra linkedin.com e entre na conta. 2) F12 → Application →
+              Cookies → https://www.linkedin.com. 3) Copie o valor de{" "}
+              <span className="text-foreground font-medium">li_at</span> e cole
+              como <span className="text-foreground font-medium">li_at=VALOR</span>
+              . Esse cookie é HttpOnly e não aparece em{" "}
+              <code className="text-xs">document.cookie</code>.
+            </AlertDescription>
+          </Alert>
+
           {challenge ? (
             <div className="flex flex-col gap-3 rounded-xl border p-4">
               <p className="font-medium">
@@ -452,31 +509,25 @@ export function DashboardClient() {
                   <>
                     <FieldGroup>
                       <Field>
-                        <FieldLabel htmlFor="linkedin-email">E-mail</FieldLabel>
-                        <Input
-                          id="linkedin-email"
-                          type="email"
-                          autoComplete="username"
-                          value={linkedinEmail}
-                          onChange={(e) => setLinkedinEmail(e.target.value)}
-                          placeholder="seu@email.com"
+                        <FieldLabel htmlFor="linkedin-cookies">
+                          Cookies da sessão
+                        </FieldLabel>
+                        <Textarea
+                          id="linkedin-cookies"
+                          value={linkedinCookies}
+                          onChange={(e) => setLinkedinCookies(e.target.value)}
+                          placeholder="li_at=AQED..."
+                          className="font-mono text-xs"
                         />
-                      </Field>
-                      <Field>
-                        <FieldLabel htmlFor="linkedin-password">Senha</FieldLabel>
-                        <Input
-                          id="linkedin-password"
-                          type="password"
-                          autoComplete="current-password"
-                          value={linkedinPassword}
-                          onChange={(e) => setLinkedinPassword(e.target.value)}
-                          placeholder="••••••••"
-                        />
+                        <FieldDescription>
+                          Aceita <code>li_at=...</code>, header Cookie, JSON do
+                          Playwright ou export de extensão.
+                        </FieldDescription>
                       </Field>
                     </FieldGroup>
                     <Button
-                      onClick={() => handleConnect("linkedin")}
-                      disabled={startingProvider !== null}
+                      onClick={() => handleImportCookies("linkedin")}
+                      disabled={startingProvider !== null || connectMutation.isPending}
                     >
                       {startingProvider === "linkedin" ? (
                         <Spinner data-icon="inline-start" />
@@ -484,9 +535,67 @@ export function DashboardClient() {
                         <Link2Icon data-icon="inline-start" />
                       )}
                       {startingProvider === "linkedin"
-                        ? "Entrando…"
-                        : "Conectar LinkedIn"}
+                        ? "Importando…"
+                        : "Importar sessão"}
                     </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="self-start"
+                      onClick={() =>
+                        setShowPasswordLogin((s) => ({
+                          ...s,
+                          linkedin: !s.linkedin,
+                        }))
+                      }
+                    >
+                      {showPasswordLogin.linkedin
+                        ? "Ocultar login por senha"
+                        : "Alternativa: login por senha (instável)"}
+                    </Button>
+                    {showPasswordLogin.linkedin ? (
+                      <>
+                        <FieldGroup>
+                          <Field>
+                            <FieldLabel htmlFor="linkedin-email">E-mail</FieldLabel>
+                            <Input
+                              id="linkedin-email"
+                              type="email"
+                              autoComplete="username"
+                              value={linkedinEmail}
+                              onChange={(e) => setLinkedinEmail(e.target.value)}
+                              placeholder="seu@email.com"
+                            />
+                          </Field>
+                          <Field>
+                            <FieldLabel htmlFor="linkedin-password">
+                              Senha
+                            </FieldLabel>
+                            <Input
+                              id="linkedin-password"
+                              type="password"
+                              autoComplete="current-password"
+                              value={linkedinPassword}
+                              onChange={(e) =>
+                                setLinkedinPassword(e.target.value)
+                              }
+                              placeholder="••••••••"
+                            />
+                          </Field>
+                        </FieldGroup>
+                        <Button
+                          variant="outline"
+                          onClick={() => handleConnect("linkedin")}
+                          disabled={startingProvider !== null}
+                        >
+                          {startingProvider === "linkedin" ? (
+                            <Spinner data-icon="inline-start" />
+                          ) : null}
+                          Tentar login automático
+                        </Button>
+                      </>
+                    ) : null}
                   </>
                 )}
               </div>
@@ -511,31 +620,24 @@ export function DashboardClient() {
                   <>
                     <FieldGroup>
                       <Field>
-                        <FieldLabel htmlFor="indeed-email">E-mail</FieldLabel>
-                        <Input
-                          id="indeed-email"
-                          type="email"
-                          autoComplete="username"
-                          value={indeedEmail}
-                          onChange={(e) => setIndeedEmail(e.target.value)}
-                          placeholder="seu@email.com"
+                        <FieldLabel htmlFor="indeed-cookies">
+                          Cookies da sessão
+                        </FieldLabel>
+                        <Textarea
+                          id="indeed-cookies"
+                          value={indeedCookies}
+                          onChange={(e) => setIndeedCookies(e.target.value)}
+                          placeholder="PP=...; CTK=..."
+                          className="font-mono text-xs"
                         />
-                      </Field>
-                      <Field>
-                        <FieldLabel htmlFor="indeed-password">Senha</FieldLabel>
-                        <Input
-                          id="indeed-password"
-                          type="password"
-                          autoComplete="current-password"
-                          value={indeedPassword}
-                          onChange={(e) => setIndeedPassword(e.target.value)}
-                          placeholder="••••••••"
-                        />
+                        <FieldDescription>
+                          DevTools → Cookies → indeed.com (ex.: PP, CTK, SHOE).
+                        </FieldDescription>
                       </Field>
                     </FieldGroup>
                     <Button
-                      onClick={() => handleConnect("indeed")}
-                      disabled={startingProvider !== null}
+                      onClick={() => handleImportCookies("indeed")}
+                      disabled={startingProvider !== null || connectMutation.isPending}
                     >
                       {startingProvider === "indeed" ? (
                         <Spinner data-icon="inline-start" />
@@ -543,9 +645,65 @@ export function DashboardClient() {
                         <Link2Icon data-icon="inline-start" />
                       )}
                       {startingProvider === "indeed"
-                        ? "Entrando…"
-                        : "Conectar Indeed"}
+                        ? "Importando…"
+                        : "Importar sessão"}
                     </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="self-start"
+                      onClick={() =>
+                        setShowPasswordLogin((s) => ({
+                          ...s,
+                          indeed: !s.indeed,
+                        }))
+                      }
+                    >
+                      {showPasswordLogin.indeed
+                        ? "Ocultar login por senha"
+                        : "Alternativa: login por senha (instável)"}
+                    </Button>
+                    {showPasswordLogin.indeed ? (
+                      <>
+                        <FieldGroup>
+                          <Field>
+                            <FieldLabel htmlFor="indeed-email">E-mail</FieldLabel>
+                            <Input
+                              id="indeed-email"
+                              type="email"
+                              autoComplete="username"
+                              value={indeedEmail}
+                              onChange={(e) => setIndeedEmail(e.target.value)}
+                              placeholder="seu@email.com"
+                            />
+                          </Field>
+                          <Field>
+                            <FieldLabel htmlFor="indeed-password">
+                              Senha
+                            </FieldLabel>
+                            <Input
+                              id="indeed-password"
+                              type="password"
+                              autoComplete="current-password"
+                              value={indeedPassword}
+                              onChange={(e) => setIndeedPassword(e.target.value)}
+                              placeholder="••••••••"
+                            />
+                          </Field>
+                        </FieldGroup>
+                        <Button
+                          variant="outline"
+                          onClick={() => handleConnect("indeed")}
+                          disabled={startingProvider !== null}
+                        >
+                          {startingProvider === "indeed" ? (
+                            <Spinner data-icon="inline-start" />
+                          ) : null}
+                          Tentar login automático
+                        </Button>
+                      </>
+                    ) : null}
                   </>
                 )}
               </div>

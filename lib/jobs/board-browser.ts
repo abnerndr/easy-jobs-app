@@ -47,6 +47,50 @@ type StorageState = {
   origins: unknown[];
 };
 
+function normalizeSameSite(
+  value: unknown
+): StorageStateCookie["sameSite"] {
+  const raw = String(value ?? "Lax").toLowerCase();
+  if (raw === "strict") return "Strict";
+  if (raw === "none") return "None";
+  return "Lax";
+}
+
+function cookieFromPartial(
+  raw: Record<string, unknown>,
+  provider: JobBoardProvider
+): StorageStateCookie | null {
+  const name = String(raw.name ?? "").trim();
+  const value = String(raw.value ?? "").trim();
+  if (!name || !value) return null;
+
+  const defaultDomain = COOKIE_DOMAINS[provider].domain;
+  let domain = String(raw.domain ?? defaultDomain).trim() || defaultDomain;
+  if (!domain.startsWith(".") && domain.includes(".")) {
+    // Playwright aceita com ou sem ponto; normaliza hosts sem leading dot
+    domain = domain.startsWith("www.") ? `.${domain.slice(4)}` : `.${domain}`;
+  }
+
+  const expiresRaw = raw.expires ?? raw.expirationDate;
+  let expires =
+    typeof expiresRaw === "number"
+      ? expiresRaw
+      : Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
+  // Chrome DevTools às vezes exporta ms
+  if (expires > 1e12) expires = Math.floor(expires / 1000);
+
+  return {
+    name,
+    value,
+    domain,
+    path: String(raw.path ?? "/") || "/",
+    expires,
+    httpOnly: Boolean(raw.httpOnly ?? true),
+    secure: Boolean(raw.secure ?? true),
+    sameSite: normalizeSameSite(raw.sameSite),
+  };
+}
+
 function parseCookieHeader(
   raw: string,
   provider: JobBoardProvider
@@ -54,14 +98,23 @@ function parseCookieHeader(
   const { domain } = COOKIE_DOMAINS[provider];
   const cookies: StorageStateCookie[] = [];
 
-  for (const part of raw.split(";")) {
+  // Aceita "a=1; b=2" ou uma cookie por linha
+  const parts = raw.includes("\n")
+    ? raw.split(/[\n;]+/)
+    : raw.split(";");
+
+  for (const part of parts) {
     const trimmed = part.trim();
-    if (!trimmed) continue;
+    if (!trimmed || trimmed.startsWith("#")) continue;
     const eq = trimmed.indexOf("=");
     if (eq <= 0) continue;
     const name = trimmed.slice(0, eq).trim();
     const value = trimmed.slice(eq + 1).trim();
     if (!name || !value) continue;
+    // Ignora metadados colados por engano
+    if (/^(path|domain|expires|max-age|secure|httponly|samesite)$/i.test(name)) {
+      continue;
+    }
     cookies.push({
       name,
       value,
@@ -77,6 +130,64 @@ function parseCookieHeader(
   return cookies;
 }
 
+function parseCookiesPayload(
+  raw: string,
+  provider: JobBoardProvider
+): StorageState {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error("Nenhum cookie informado.");
+  }
+
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      throw new Error("JSON de cookies inválido.");
+    }
+
+    if (Array.isArray(parsed)) {
+      const cookies = parsed
+        .map((item) =>
+          item && typeof item === "object"
+            ? cookieFromPartial(item as Record<string, unknown>, provider)
+            : null
+        )
+        .filter((c): c is StorageStateCookie => c != null);
+      return { cookies, origins: [] };
+    }
+
+    if (parsed && typeof parsed === "object") {
+      const obj = parsed as Record<string, unknown>;
+      if (Array.isArray(obj.cookies)) {
+        const cookies = obj.cookies
+          .map((item) =>
+            item && typeof item === "object"
+              ? cookieFromPartial(item as Record<string, unknown>, provider)
+              : null
+          )
+          .filter((c): c is StorageStateCookie => c != null);
+        return {
+          cookies,
+          origins: Array.isArray(obj.origins) ? obj.origins : [],
+        };
+      }
+      // Objeto único { name, value, ... }
+      if (obj.name && obj.value) {
+        const cookie = cookieFromPartial(obj, provider);
+        if (cookie) return { cookies: [cookie], origins: [] };
+      }
+    }
+
+    throw new Error(
+      "JSON inválido. Use storageState do Playwright, array de cookies ou li_at=..."
+    );
+  }
+
+  return { cookies: parseCookieHeader(trimmed, provider), origins: [] };
+}
+
 function assertAuthCookies(provider: JobBoardProvider, cookies: StorageStateCookie[]) {
   if (cookies.length === 0) {
     throw new Error("Nenhum cookie informado.");
@@ -85,7 +196,7 @@ function assertAuthCookies(provider: JobBoardProvider, cookies: StorageStateCook
   if (provider === "LINKEDIN") {
     if (!names.some((n) => /^li_at$/i.test(n))) {
       throw new Error(
-        "Cookie LinkedIn incompleto. Cole ao menos o cookie li_at (DevTools → Application → Cookies → linkedin.com)."
+        "Cookie LinkedIn incompleto. Cole ao menos o cookie li_at (DevTools → Application → Cookies → linkedin.com). O li_at é HttpOnly e não aparece em document.cookie."
       );
     }
     return;
@@ -113,21 +224,13 @@ export async function importJobBoardSession(
   let state: StorageState;
 
   if (input.storageState != null) {
-    const parsed =
+    const asText =
       typeof input.storageState === "string"
-        ? (JSON.parse(input.storageState) as StorageState)
-        : (input.storageState as StorageState);
-    if (!parsed?.cookies || !Array.isArray(parsed.cookies)) {
-      throw new Error("storageState inválido: esperado JSON com campo cookies.");
-    }
-    state = {
-      cookies: parsed.cookies as StorageStateCookie[],
-      origins: Array.isArray(parsed.origins) ? parsed.origins : [],
-    };
+        ? input.storageState
+        : JSON.stringify(input.storageState);
+    state = parseCookiesPayload(asText, provider);
   } else if (input.cookies?.trim()) {
-    const cookies = parseCookieHeader(input.cookies, provider);
-    assertAuthCookies(provider, cookies);
-    state = { cookies, origins: [] };
+    state = parseCookiesPayload(input.cookies, provider);
   } else {
     throw new Error("Informe cookies ou storageState para importar a sessão.");
   }
