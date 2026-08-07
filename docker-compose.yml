@@ -10,6 +10,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d easy_job_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
@@ -19,6 +24,37 @@ services:
     volumes:
       - redis_data:/data
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DATABASE_URL: postgresql://postgres:postgres@postgres:5432/easy_job_app?schema=public
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/easy_job_app?schema=public
+      PORT: "3000"
+      APP_PORT: "3001"
+      GATEWAY_PORT: "3000"
+      NOVNC_PORT: "6080"
+      VNC_PORT: "5900"
+      DISPLAY: ":99"
+      PLAYWRIGHT_HEADED: "true"
+      RESUME_STORAGE_DIR: /app/data/resumes
+    volumes:
+      - app_sessions:/app/data/sessions
+      - app_resumes:/app/data/resumes
+    depends_on:
+      postgres:
+        condition: service_healthy
+    shm_size: "1gb"
+
 volumes:
   postgres_data:
   redis_data:
+  app_sessions:
+  app_resumes:

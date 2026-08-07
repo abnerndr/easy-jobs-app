@@ -1,4 +1,6 @@
-# Dokploy → Application → Build Type: Nixpacks
+# Dokploy → Application → Build Type: Dockerfile (recomendado para noVNC)
+# Nixpacks permanece como fallback legado sem noVNC interativo.
+#
 # Port: 3000
 # Docs: https://nixpacks.com/docs/configuration/file
 

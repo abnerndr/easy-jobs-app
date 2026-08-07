@@ -9,6 +9,7 @@ export type NormalizedJob = {
   url: string;
   description: string;
   workMode?: "REMOTO" | "HIBRIDO" | "PRESENCIAL" | null;
+  easyApply?: boolean | null;
 };
 
 export type SearchQuery = {

@@ -20,6 +20,7 @@ export type JobListItem = {
     source: string;
     workMode: string | null;
     description: string;
+    easyApply: boolean | null;
   };
 };
 

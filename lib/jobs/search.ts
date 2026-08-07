@@ -47,6 +47,7 @@ async function upsertJobs(jobs: NormalizedJob[]) {
         url: job.url,
         description: job.description,
         workMode: job.workMode ?? null,
+        easyApply: job.easyApply ?? null,
         dedupeKey,
       },
       update: {
@@ -56,6 +57,7 @@ async function upsertJobs(jobs: NormalizedJob[]) {
         url: job.url,
         description: job.description,
         workMode: job.workMode ?? null,
+        easyApply: job.easyApply ?? null,
         fetchedAt: new Date(),
       },
     });

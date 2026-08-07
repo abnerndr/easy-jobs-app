@@ -371,7 +371,7 @@ export async function scrapeLinkedInJobs(
 
   return withSession(userId, "LINKEDIN", async (page) => {
     await page.goto(
-      `https://www.linkedin.com/jobs/search/?keywords=${keywords}&location=${encodeURIComponent(query.location || "Brazil")}&f_TPR=r86400`,
+      `https://www.linkedin.com/jobs/search/?keywords=${keywords}&location=${encodeURIComponent(query.location || "Brazil")}&f_TPR=r86400&f_AL=true`,
       { waitUntil: "domcontentloaded", timeout: 60_000 }
     );
     await page.waitForTimeout(3000);
@@ -402,6 +402,11 @@ export async function scrapeLinkedInJobs(
         "";
       if (!title || !href) continue;
 
+      const cardText = ((await card.innerText().catch(() => "")) || "").toLowerCase();
+      const hasEasyLabel = /easy apply|candidatura simplificada/.test(cardText);
+      // Busca usa f_AL=true; marca true salvo se o card deixar explícito o contrário
+      const easyApply = hasEasyLabel || !/candidatura na empresa|external apply/.test(cardText);
+
       const url = href.startsWith("http") ? href.split("?")[0] : `https://www.linkedin.com${href.split("?")[0]}`;
       const idMatch = url.match(/\/jobs\/view\/(\d+)/);
       jobs.push({
@@ -413,6 +418,7 @@ export async function scrapeLinkedInJobs(
         url,
         description: `${title} em ${company} — ${location}`,
         workMode: inferWorkMode(`${title} ${location}`),
+        easyApply,
       });
     }
 
@@ -480,6 +486,7 @@ export async function scrapeIndeedJobs(
         url,
         description: stripHtml(snippet).slice(0, 2000),
         workMode: inferWorkMode(`${title} ${snippet} ${location}`),
+        easyApply: false,
       });
     }
 

@@ -38,6 +38,7 @@ export async function GET() {
         source: app.job.source,
         workMode: app.job.workMode,
         description: app.job.description,
+        easyApply: app.job.easyApply,
       },
     }));
 

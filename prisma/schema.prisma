@@ -149,6 +149,8 @@ model Job {
   url         String
   description String     @db.Text
   workMode    WorkMode?
+  /// LinkedIn Easy Apply (null = desconhecido)
+  easyApply   Boolean?
   dedupeKey   String     @unique
   fetchedAt   DateTime   @default(now())
 

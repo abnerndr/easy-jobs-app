@@ -130,15 +130,37 @@ export async function runApplySelected(
   const eligible = apps.filter(
     (a) =>
       a.job.source === "LINKEDIN" &&
+      a.job.easyApply === true &&
       (a.status === "FOUND" || a.status === "QUEUED" || a.status === "FAILED")
   );
 
-  const toProcess = eligible.slice(0, applyQuota);
   const results: ApplyBatchResult["results"] = [];
   let applied = 0;
   let external = 0;
   let failed = 0;
   let skipped = 0;
+
+  for (const app of apps) {
+    if (eligible.some((e) => e.id === app.id)) continue;
+    if (app.job.source === "LINKEDIN" && app.job.easyApply === true) continue;
+    await prisma.application.update({
+      where: { id: app.id },
+      data: {
+        status: "EXTERNAL_REDIRECT",
+        errorMessage:
+          "Por enquanto só é possível se candidatar em vagas LinkedIn Easy Apply.",
+      },
+    });
+    results.push({
+      applicationId: app.id,
+      status: "EXTERNAL_REDIRECT",
+      message:
+        "Por enquanto só é possível se candidatar em vagas LinkedIn Easy Apply.",
+    });
+    external += 1;
+  }
+
+  const toProcess = eligible.slice(0, applyQuota);
 
   for (const app of toProcess) {
     await prisma.application.update({
