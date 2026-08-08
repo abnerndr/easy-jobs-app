@@ -102,19 +102,21 @@ export function DashboardClient() {
   );
   const demoCount =
     jobsQuery.data?.filter((item) => item.job.source === "DEMO").length ?? 0;
-  const eligibleJobs =
-    jobsQuery.data?.filter(
-      (item) =>
-        item.job.source === "LINKEDIN" && item.job.easyApply === true
-    ) ?? [];
-  const eligibleIds = eligibleJobs.map((item) => item.applicationId);
   const allIds = jobsQuery.data?.map((item) => item.applicationId) ?? [];
-  const allEligibleSelected =
-    eligibleIds.length > 0 &&
-    eligibleIds.every((id) => selectedIds.includes(id));
-  const someSelected = selectedIds.length > 0 && !allEligibleSelected;
+  const easyApplyIds =
+    jobsQuery.data
+      ?.filter(
+        (item) =>
+          item.job.source === "LINKEDIN" && item.job.easyApply === true
+      )
+      .map((item) => item.applicationId) ?? [];
+  const allSelected = allIds.length > 0 && selectedIds.length === allIds.length;
+  const someSelected = selectedIds.length > 0 && !allSelected;
+  const selectedEasyApplyCount = selectedIds.filter((id) =>
+    easyApplyIds.includes(id)
+  ).length;
 
-  function canSelectJob(item: {
+  function isEasyApplyJob(item: {
     job: { source: string; easyApply: boolean | null };
   }) {
     return item.job.source === "LINKEDIN" && item.job.easyApply === true;
@@ -127,7 +129,7 @@ export function DashboardClient() {
   }
 
   function toggleSelectAll(checked: boolean) {
-    setSelectedIds(checked ? eligibleIds : []);
+    setSelectedIds(checked ? allIds : []);
   }
 
   const limitValue = limitDraft ?? String(settings?.dailyApplyLimit ?? 10);
@@ -317,25 +319,44 @@ export function DashboardClient() {
   }
 
   async function handleApplySelected() {
-    if (selectedIds.length === 0) {
-      toast.error("Selecione ao menos uma vaga Easy Apply.");
+    const toApply = selectedIds.filter((id) => easyApplyIds.includes(id));
+    if (toApply.length === 0) {
+      toast.error(
+        "Nenhuma vaga Easy Apply selecionada. A inscrição automática só funciona nessas."
+      );
       return;
     }
     if (!linkedIn?.connected) {
       toast.error("Conecte o LinkedIn para Easy Apply.");
       return;
     }
-    toast.message("Candidatando nas selecionadas…", {
+    toast.message("Candidatando nas Easy Apply selecionadas…", {
       description:
         "Easy Apply no LinkedIn com sessão salva + IA. Pode levar alguns minutos.",
     });
     try {
-      const result = await applySelectedMutation.mutateAsync(selectedIds);
-      setSelectedIds([]);
+      const result = await applySelectedMutation.mutateAsync(toApply);
+      setSelectedIds((prev) => prev.filter((id) => !toApply.includes(id)));
       toast.success(result.message);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Erro ao candidatar."
+      );
+    }
+  }
+
+  async function handleDeleteAll() {
+    if (allIds.length === 0) {
+      toast.error("Não há vagas na listagem.");
+      return;
+    }
+    try {
+      const result = await deleteSelectedMutation.mutateAsync(allIds);
+      setSelectedIds([]);
+      toast.success(result.message);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Erro ao remover vagas."
       );
     }
   }
@@ -397,8 +418,9 @@ export function DashboardClient() {
         <CardHeader>
           <CardTitle>Contas das plataformas</CardTitle>
           <CardDescription>
-            Abre um Chromium no servidor; você digita login, CAPTCHA e 2FA na
-            tela remota. A sessão é salva automaticamente.
+            No Mac abre o Chrome neste computador (janela do sistema — não um
+            iframe). Em produção com Docker/Dokploy (Dockerfile) usa tela remota
+            noVNC.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -738,11 +760,7 @@ export function DashboardClient() {
                 <Checkbox
                   id="select-all-jobs"
                   checked={
-                    allEligibleSelected
-                      ? true
-                      : someSelected
-                        ? "indeterminate"
-                        : false
+                    allSelected ? true : someSelected ? "indeterminate" : false
                   }
                   onCheckedChange={(value) => toggleSelectAll(value === true)}
                 />
@@ -755,7 +773,7 @@ export function DashboardClient() {
               size="sm"
               onClick={handleApplySelected}
               disabled={
-                selectedIds.length === 0 ||
+                selectedEasyApplyCount === 0 ||
                 !linkedIn?.connected ||
                 applySelectedMutation.isPending
               }
@@ -767,7 +785,7 @@ export function DashboardClient() {
               )}
               {applySelectedMutation.isPending
                 ? "Inscrevendo…"
-                : `Inscrever selecionadas (${selectedIds.length})`}
+                : `Inscrever Easy Apply (${selectedEasyApplyCount})`}
             </Button>
             <Button
               variant="destructive"
@@ -782,7 +800,18 @@ export function DashboardClient() {
               ) : (
                 <Trash2Icon data-icon="inline-start" />
               )}
-              Limpar selecionadas ({selectedIds.length})
+              Remover selecionadas ({selectedIds.length})
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDeleteAll}
+              disabled={
+                allIds.length === 0 || deleteSelectedMutation.isPending
+              }
+            >
+              <Trash2Icon data-icon="inline-start" />
+              Remover todas
             </Button>
             {(demoCount > 0 || clearDemoMutation.isPending) && (
               <Button
@@ -848,7 +877,7 @@ export function DashboardClient() {
         <div className="flex flex-col gap-3">
           {jobsQuery.data?.map((item) => {
             const checked = selectedIds.includes(item.applicationId);
-            const selectable = canSelectJob(item);
+            const easyApply = isEasyApplyJob(item);
             return (
               <Card key={item.applicationId} size="sm">
                 <CardHeader>
@@ -856,7 +885,6 @@ export function DashboardClient() {
                     <div className="flex min-w-0 items-start gap-3">
                       <Checkbox
                         checked={checked}
-                        disabled={!selectable}
                         onCheckedChange={(value) =>
                           toggleSelect(item.applicationId, value === true)
                         }
@@ -867,8 +895,8 @@ export function DashboardClient() {
                         <CardTitle className="truncate">{item.job.title}</CardTitle>
                         <CardDescription>
                           {item.job.company} · {item.job.location}
-                          {!selectable
-                            ? " · só Easy Apply pode ser inscrito automaticamente"
+                          {!easyApply
+                            ? " · inscrição automática só em Easy Apply"
                             : ""}
                         </CardDescription>
                       </div>
@@ -882,10 +910,10 @@ export function DashboardClient() {
                           variant={item.job.easyApply ? "default" : "outline"}
                         >
                           {item.job.easyApply === true
-                            ? "Easy Apply"
+                            ? "Easy Apply - Yes"
                             : item.job.easyApply === false
                               ? "Externa"
-                              : "Easy Apply ?"}
+                              : "Easy Apply - No"}
                         </Badge>
                       ) : null}
                     </div>

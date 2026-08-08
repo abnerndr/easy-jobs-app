@@ -7,10 +7,17 @@ import {
 } from "@/lib/jobs/session-store";
 
 const LOGIN_URL: Record<JobBoardProvider, string> = {
-  LINKEDIN: "https://www.linkedin.com/login",
+  LINKEDIN:
+    "https://www.linkedin.com/login?fromSignIn=true&trk=guest_homepage-basic_nav-header-signin",
   INDEED:
     "https://secure.indeed.com/auth?continue=https%3A%2F%2Fbr.indeed.com%2F",
 };
+
+const LINKEDIN_LOGIN_FALLBACKS = [
+  "https://www.linkedin.com/login",
+  "https://www.linkedin.com/uas/login",
+  "https://www.linkedin.com/checkpoint/lg/sign-in-another-account",
+];
 
 const SUCCESS_HINT: Record<JobBoardProvider, RegExp> = {
   LINKEDIN: /linkedin\.com\/(feed|jobs|in\/|mynetwork|messaging|preload)/i,
@@ -202,23 +209,40 @@ async function launchBrowser() {
     );
   }
 
-  const browser = await chromium.launch({
-    headless: false,
-    channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
-    args: [
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      "--window-size=1280,900",
-      "--disable-blink-features=AutomationControlled",
-      "--start-maximized",
-    ],
-  });
+  const preferChrome =
+    process.env.PLAYWRIGHT_CHANNEL ||
+    (process.platform === "darwin" || process.platform === "win32"
+      ? "chrome"
+      : undefined);
 
+  let browser: Browser;
+  try {
+    browser = await chromium.launch({
+      headless: false,
+      channel: preferChrome,
+      args: [
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled",
+        "--start-maximized",
+      ],
+    });
+  } catch {
+    // Chrome do sistema ausente — usa Chromium do Playwright
+    browser = await chromium.launch({
+      headless: false,
+      args: [
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled",
+        "--window-size=1280,900",
+      ],
+    });
+  }
+
+  // No Mac/Windows, deixa o UA real do browser (evita fingerprint estranho)
   const context = await browser.newContext({
     locale: "pt-BR",
-    viewport: VIEWPORT,
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    viewport: null,
     extraHTTPHeaders: {
       "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
     },
@@ -229,6 +253,67 @@ async function launchBrowser() {
   });
 
   return { browser, context };
+}
+
+function looksLikeDeadLoginPage(title: string, url: string, body: string) {
+  const blob = `${title}\n${url}\n${body}`.toLowerCase();
+  return (
+    /this page could not be found/.test(blob) ||
+    /page doesn.?t exist/.test(blob) ||
+    /página não (encontrada|existe)/.test(blob) ||
+    (/404/.test(title) && !/linkedin\.com\/login/i.test(url))
+  );
+}
+
+async function openProviderLogin(page: Page, provider: JobBoardProvider) {
+  if (provider === "INDEED") {
+    await page.goto(LOGIN_URL.INDEED, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+    return;
+  }
+
+  // LinkedIn: home → Sign in (mais estável que deep-link direto em alguns IPs)
+  await page.goto("https://www.linkedin.com/", {
+    waitUntil: "domcontentloaded",
+    timeout: 60_000,
+  });
+  await page.waitForTimeout(800);
+
+  const signIn = page
+    .getByRole("link", { name: /sign in|entrar|acessar/i })
+    .first();
+  if (await signIn.isVisible().catch(() => false)) {
+    await signIn.click().catch(() => undefined);
+    await page.waitForTimeout(1000);
+  }
+
+  if (!/linkedin\.com\/(login|uas\/login|checkpoint)/i.test(page.url())) {
+    await page.goto(LOGIN_URL.LINKEDIN, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+  }
+
+  for (const fallback of LINKEDIN_LOGIN_FALLBACKS) {
+    const title = await page.title().catch(() => "");
+    const body = await page.locator("body").innerText().catch(() => "");
+    if (!looksLikeDeadLoginPage(title, page.url(), body)) break;
+    await page.goto(fallback, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+    await page.waitForTimeout(800);
+  }
+
+  const title = await page.title().catch(() => "");
+  const body = await page.locator("body").innerText().catch(() => "");
+  if (looksLikeDeadLoginPage(title, page.url(), body)) {
+    throw new Error(
+      `LinkedIn não abriu o login (URL: ${page.url()}, título: ${title}). Tente o fallback de cookies ou outro IP/rede.`
+    );
+  }
 }
 
 /**
@@ -266,10 +351,7 @@ export async function startRemoteLogin(
   sessions.set(session.id, session);
 
   try {
-    await page.goto(LOGIN_URL[provider], {
-      waitUntil: "domcontentloaded",
-      timeout: 60_000,
-    });
+    await openProviderLogin(page, provider);
   } catch (error) {
     await destroySession(session);
     throw new Error(
@@ -283,7 +365,7 @@ export async function startRemoteLogin(
 
   const message =
     displayMode === "local-window"
-      ? "Uma janela do Chromium abriu neste computador. Faça login lá (CAPTCHA/2FA). A sessão será salva automaticamente."
+      ? "Uma janela do Chrome/Chromium abriu neste computador (não no iframe do site). Faça login lá. A sessão será salva automaticamente."
       : "Faça login na tela remota (CAPTCHA/2FA inclusive). A sessão será salva automaticamente.";
 
   return {
