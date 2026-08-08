@@ -91,6 +91,7 @@ export function DashboardClient() {
     novncUrl: string | null;
     displayMode: "novnc" | "local-window";
   } | null>(null);
+  const profile = profileQuery.data;
   const usage = settingsQuery.data?.usage;
   const settings = settingsQuery.data?.settings;
   const canSearch = connectionsQuery.data?.canSearch ?? false;
