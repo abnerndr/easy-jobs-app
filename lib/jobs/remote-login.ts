@@ -72,8 +72,6 @@ export function getNovncEmbedPath() {
   );
 }
 
-export type RemoteDisplayMode = "novnc" | "local-window";
-
 export type RemoteDisplayMode = "novnc" | "local-window" | "unavailable";
 
 export async function detectDisplayMode(): Promise<RemoteDisplayMode> {
