@@ -259,7 +259,12 @@ export function DashboardClient() {
       toast.success(done.message ?? "Conectado.");
     } catch (error) {
       setRemoteSession(null);
-      toast.error(error instanceof Error ? error.message : "Falha ao conectar.");
+      const msg =
+        error instanceof Error ? error.message : "Falha ao conectar.";
+      toast.error(msg);
+      if (/noVNC|indisponível|Dockerfile|cookies/i.test(msg)) {
+        setShowCookieFallback((s) => ({ ...s, [provider]: true }));
+      }
     } finally {
       setStartingProvider(null);
     }
