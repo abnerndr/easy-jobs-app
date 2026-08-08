@@ -91,8 +91,6 @@ export function DashboardClient() {
     novncUrl: string | null;
     displayMode: "novnc" | "local-window";
   } | null>(null);
-
-  const profile = profileQuery.data;
   const usage = settingsQuery.data?.usage;
   const settings = settingsQuery.data?.settings;
   const canSearch = connectionsQuery.data?.canSearch ?? false;
@@ -247,9 +245,11 @@ export function DashboardClient() {
         sessionId: body.sessionId as string,
         novncUrl: (body.novncUrl as string | null) ?? null,
         displayMode:
-          body.displayMode === "local-window" ? "local-window" : "novnc",
+          body.displayMode === "novnc" && body.novncUrl
+            ? "novnc"
+            : "local-window",
       });
-      toast.message(body.message ?? "Faça login na janela/tela remota.");
+      toast.message(body.message ?? "Faça login na janela do Chromium.");
       const done = await pollRemoteUntilDone(provider, body.sessionId as string);
       setRemoteSession(null);
       void connectionsQuery.refetch();

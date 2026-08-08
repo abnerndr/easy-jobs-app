@@ -67,9 +67,12 @@ export function getNovncEmbedPath() {
 
 export type RemoteDisplayMode = "novnc" | "local-window";
 
-async function detectDisplayMode(): Promise<RemoteDisplayMode> {
+export type RemoteDisplayMode = "novnc" | "local-window" | "unavailable";
+
+export async function detectDisplayMode(): Promise<RemoteDisplayMode> {
   if (process.env.REMOTE_LOGIN_MODE === "local-window") return "local-window";
   if (process.env.REMOTE_LOGIN_MODE === "novnc") return "novnc";
+  if (process.env.REMOTE_LOGIN_MODE === "unavailable") return "unavailable";
 
   const port = Number(process.env.NOVNC_PORT || 6080);
   try {
@@ -81,11 +84,12 @@ async function detectDisplayMode(): Promise<RemoteDisplayMode> {
     // websockify ausente
   }
 
-  // Sem stack noVNC: em desktop local abre janela; no servidor Linux exige Docker/noVNC
   if (process.platform === "darwin" || process.platform === "win32") {
     return "local-window";
   }
-  return "novnc";
+
+  // Linux sem websockify (ex.: Nixpacks sem gateway) — não abrir iframe 404
+  return "unavailable";
 }
 
 async function closeBrowser(session: RemoteLoginSession) {
@@ -235,6 +239,12 @@ export async function startRemoteLogin(
   provider: JobBoardProvider
 ) {
   const displayMode = await detectDisplayMode();
+  if (displayMode === "unavailable") {
+    throw new Error(
+      "Tela remota (noVNC) indisponível neste servidor. No Dokploy use Build Type Dockerfile (não Nixpacks), ou importe cookies no painel (fallback)."
+    );
+  }
+
   await closeExisting(userId, provider);
   const { browser, context } = await launchBrowser();
   const page = await context.newPage();
