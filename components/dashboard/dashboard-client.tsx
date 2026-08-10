@@ -203,6 +203,7 @@ export function DashboardClient() {
       toast.success(result.message ?? "Conectado.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao conectar.");
+      setShowCookieFallback((s) => ({ ...s, [provider]: true }));
     } finally {
       setStartingProvider(null);
     }
@@ -762,9 +763,18 @@ export function DashboardClient() {
                   Buscar vagas agora
                 </Button>
               ) : (
-                <Button onClick={() => handleConnect("linkedin")}>
-                  <Link2Icon data-icon="inline-start" />
-                  Conectar LinkedIn
+                <Button
+                  onClick={() => handleConnect("linkedin")}
+                  disabled={startingProvider !== null}
+                >
+                  {startingProvider === "linkedin" ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <Link2Icon data-icon="inline-start" />
+                  )}
+                  {startingProvider === "linkedin"
+                    ? "Aguardando login…"
+                    : "Conectar LinkedIn"}
                 </Button>
               )}
             </EmptyContent>

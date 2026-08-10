@@ -12,6 +12,6 @@ export async function POST() {
 
   return errorResponse(
     "Candidatura automática (Easy Apply) está desativada por enquanto.",
-    410
+    503
   );
 }

@@ -289,7 +289,8 @@ async function launchContext(
 
 /**
  * Opens a headed browser for the user to log in (local machine with display).
- * Em produção/Dokploy use o fluxo remoto em /api/connections/[provider]/remote.
+ * Sem display gráfico (ex.: servidor Docker/Dokploy headless), use o
+ * fallback "Avançado: importar cookies" no painel.
  */
 export async function connectJobBoard(
   userId: string,
@@ -298,7 +299,7 @@ export async function connectJobBoard(
 ) {
   if (!canUseHeadedBrowser()) {
     throw new Error(
-      "Sem display gráfico. Use o login remoto no painel (Conectar LinkedIn/Indeed)."
+      "Sem display gráfico neste ambiente. Use \"Avançado: importar cookies\" no painel."
     );
   }
 
