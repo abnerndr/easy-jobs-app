@@ -191,29 +191,6 @@ async function deleteSelectedJobs(applicationIds: string[]) {
   };
 }
 
-async function applySelectedJobs(applicationIds: string[]) {
-  const response = await fetch("/api/jobs/apply", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ applicationIds }),
-  });
-  const body = await response.json();
-  if (!response.ok) {
-    throw new Error(
-      body?.error?.message ?? body?.error ?? "Erro ao candidatar selecionadas."
-    );
-  }
-  return body as {
-    processed: number;
-    applied: number;
-    external: number;
-    failed: number;
-    skipped: number;
-    remainingApplyQuota: number;
-    message: string;
-  };
-}
-
 async function matchSelectedJobs(applicationIds: string[]) {
   const response = await fetch("/api/jobs/match", {
     method: "POST",
@@ -285,18 +262,6 @@ export function useDeleteSelectedJobsMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: deleteSelectedJobs,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: JOBS_KEY });
-      queryClient.invalidateQueries({ queryKey: APPLICATIONS_KEY });
-      queryClient.invalidateQueries({ queryKey: SETTINGS_KEY });
-    },
-  });
-}
-
-export function useApplySelectedJobsMutation() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: applySelectedJobs,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: JOBS_KEY });
       queryClient.invalidateQueries({ queryKey: APPLICATIONS_KEY });

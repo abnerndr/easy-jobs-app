@@ -8,7 +8,6 @@ import {
   HeartIcon,
   Link2Icon,
   SearchIcon,
-  SendIcon,
   Settings2Icon,
   Trash2Icon,
   UnlinkIcon,
@@ -48,7 +47,6 @@ import {
 import { StatusBadge } from "@/components/jobs/status-badge";
 import { useProfileQuery } from "@/hooks/use-profile";
 import {
-  useApplySelectedJobsMutation,
   useClearDemoJobsMutation,
   useConnectBoardMutation,
   useConnectionsQuery,
@@ -71,7 +69,6 @@ export function DashboardClient() {
   const searchMutation = useJobSearchMutation();
   const clearDemoMutation = useClearDemoJobsMutation();
   const deleteSelectedMutation = useDeleteSelectedJobsMutation();
-  const applySelectedMutation = useApplySelectedJobsMutation();
   const matchSelectedMutation = useMatchSelectedJobsMutation();
   const saveSettings = useSaveJobSettingsMutation();
   const connectMutation = useConnectBoardMutation();
@@ -89,12 +86,6 @@ export function DashboardClient() {
     linkedin: boolean;
     indeed: boolean;
   }>({ linkedin: false, indeed: false });
-  const [remoteSession, setRemoteSession] = useState<{
-    provider: "linkedin" | "indeed";
-    sessionId: string;
-    novncUrl: string | null;
-    displayMode: "novnc" | "local-window";
-  } | null>(null);
   const profile = profileQuery.data;
   const usage = settingsQuery.data?.usage;
   const settings = settingsQuery.data?.settings;
@@ -108,24 +99,8 @@ export function DashboardClient() {
   const demoCount =
     jobsQuery.data?.filter((item) => item.job.source === "DEMO").length ?? 0;
   const allIds = jobsQuery.data?.map((item) => item.applicationId) ?? [];
-  const easyApplyIds =
-    jobsQuery.data
-      ?.filter(
-        (item) =>
-          item.job.source === "LINKEDIN" && item.job.easyApply === true
-      )
-      .map((item) => item.applicationId) ?? [];
   const allSelected = allIds.length > 0 && selectedIds.length === allIds.length;
   const someSelected = selectedIds.length > 0 && !allSelected;
-  const selectedEasyApplyCount = selectedIds.filter((id) =>
-    easyApplyIds.includes(id)
-  ).length;
-
-  function isEasyApplyJob(item: {
-    job: { source: string; easyApply: boolean | null };
-  }) {
-    return item.job.source === "LINKEDIN" && item.job.easyApply === true;
-  }
 
   function toggleSelect(id: string, checked: boolean) {
     setSelectedIds((prev) =>
@@ -210,92 +185,27 @@ export function DashboardClient() {
     }
   }
 
-  async function pollRemoteUntilDone(
-    provider: "linkedin" | "indeed",
-    sessionId: string
-  ) {
-    const deadline = Date.now() + 5 * 60_000;
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const response = await fetch(
-        `/api/connections/${provider}/remote?sessionId=${encodeURIComponent(sessionId)}`
-      );
-      const body = await response.json();
-      if (!response.ok) {
-        throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : body?.error?.message ?? "Falha ao consultar status."
-        );
-      }
-      if (body.status === "connected") {
-        return body;
-      }
-      if (
-        body.status === "failed" ||
-        body.status === "expired" ||
-        body.status === "cancelled"
-      ) {
-        throw new Error(body.error || `Login ${body.status}.`);
-      }
-    }
-    throw new Error("Tempo esgotado aguardando login remoto.");
-  }
-
-  async function handleRemoteConnect(provider: "linkedin" | "indeed") {
+  async function handleConnect(provider: "linkedin" | "indeed") {
     setStartingProvider(provider);
-    setRemoteSession(null);
     toast.message(
-      `Abrindo Chromium remoto (${provider === "linkedin" ? "LinkedIn" : "Indeed"})…`,
-      { description: "Faça login na tela abaixo (CAPTCHA/2FA inclusive)." }
+      `Abrindo Chrome local (${provider === "linkedin" ? "LinkedIn" : "Indeed"})…`,
+      {
+        description:
+          "Uma janela do Chrome vai abrir neste computador. Faça login lá e aguarde a confirmação aqui.",
+      }
     );
     try {
-      const response = await fetch(`/api/connections/${provider}/remote`, {
-        method: "POST",
-      });
-      const body = await response.json();
-      if (!response.ok) {
-        throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : body?.error?.message ?? "Falha ao abrir login remoto."
-        );
-      }
-      setRemoteSession({
+      const result = await connectMutation.mutateAsync({
         provider,
-        sessionId: body.sessionId as string,
-        novncUrl: (body.novncUrl as string | null) ?? null,
-        displayMode:
-          body.displayMode === "novnc" && body.novncUrl
-            ? "novnc"
-            : "local-window",
+        mode: "browser",
       });
-      toast.message(body.message ?? "Faça login na janela do Chromium.");
-      const done = await pollRemoteUntilDone(provider, body.sessionId as string);
-      setRemoteSession(null);
       void connectionsQuery.refetch();
-      toast.success(done.message ?? "Conectado.");
+      toast.success(result.message ?? "Conectado.");
     } catch (error) {
-      setRemoteSession(null);
-      const msg =
-        error instanceof Error ? error.message : "Falha ao conectar.";
-      toast.error(msg);
-      if (/noVNC|indisponível|Dockerfile|cookies/i.test(msg)) {
-        setShowCookieFallback((s) => ({ ...s, [provider]: true }));
-      }
+      toast.error(error instanceof Error ? error.message : "Falha ao conectar.");
     } finally {
       setStartingProvider(null);
     }
-  }
-
-  async function handleRemoteCancel() {
-    if (!remoteSession) return;
-    await fetch(
-      `/api/connections/${remoteSession.provider}/remote?sessionId=${encodeURIComponent(remoteSession.sessionId)}`,
-      { method: "DELETE" }
-    ).catch(() => undefined);
-    setRemoteSession(null);
-    setStartingProvider(null);
   }
 
   async function handleDisconnect(provider: "linkedin" | "indeed") {
@@ -338,33 +248,6 @@ export function DashboardClient() {
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Erro ao remover selecionadas."
-      );
-    }
-  }
-
-  async function handleApplySelected() {
-    const toApply = selectedIds.filter((id) => easyApplyIds.includes(id));
-    if (toApply.length === 0) {
-      toast.error(
-        "Nenhuma vaga Easy Apply selecionada. A inscrição automática só funciona nessas."
-      );
-      return;
-    }
-    if (!linkedIn?.connected) {
-      toast.error("Conecte o LinkedIn para Easy Apply.");
-      return;
-    }
-    toast.message("Candidatando nas Easy Apply selecionadas…", {
-      description:
-        "Easy Apply no LinkedIn com sessão salva + IA. Pode levar alguns minutos.",
-    });
-    try {
-      const result = await applySelectedMutation.mutateAsync(toApply);
-      setSelectedIds((prev) => prev.filter((id) => !toApply.includes(id)));
-      toast.success(result.message);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Erro ao candidatar."
       );
     }
   }
@@ -449,8 +332,9 @@ export function DashboardClient() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Painel</h1>
           <p className="text-muted-foreground max-w-2xl text-sm">
-            Conecte LinkedIn e/ou Indeed pelo Chromium remoto (noVNC). Depois a
-            busca libera; inscrição automática só em vagas Easy Apply.
+            Conecte LinkedIn e/ou Indeed pelo Chrome deste computador, busque
+            vagas reais e dê match nas que fizerem sentido. Candidatura
+            automática (Easy Apply) volta em breve.
           </p>
         </div>
         <Button variant="outline" asChild>
@@ -462,217 +346,171 @@ export function DashboardClient() {
         <CardHeader>
           <CardTitle>Contas das plataformas</CardTitle>
           <CardDescription>
-            No Mac abre o Chrome neste computador (janela do sistema — não um
-            iframe). Em produção com Docker/Dokploy (Dockerfile) usa tela remota
-            noVNC.
+            Uma janela do Chrome abre neste computador. Faça login nela — o
+            painel detecta e salva a sessão automaticamente.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          {remoteSession ? (
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="flex flex-col gap-3 rounded-xl border p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-medium">
-                  Login remoto —{" "}
-                  {remoteSession.provider === "linkedin" ? "LinkedIn" : "Indeed"}
-                </p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-medium">LinkedIn</p>
+                <Badge variant={linkedIn?.connected ? "default" : "secondary"}>
+                  {linkedIn?.connected ? "Conectado" : "Desconectado"}
+                </Badge>
+              </div>
+              {linkedIn?.connected ? (
                 <Button
-                  type="button"
                   variant="outline"
-                  size="sm"
-                  onClick={handleRemoteCancel}
+                  onClick={() => handleDisconnect("linkedin")}
+                  disabled={disconnectMutation.isPending}
                 >
-                  Cancelar
+                  <UnlinkIcon data-icon="inline-start" />
+                  Desconectar
                 </Button>
-              </div>
-              <p className="text-muted-foreground text-sm">
-                {remoteSession.displayMode === "local-window"
-                  ? "Uma janela do Chromium abriu neste Mac. Faça login lá (CAPTCHA/2FA). O painel detecta e salva a sessão."
-                  : "Complete o login na tela abaixo. Quando entrar, o painel detecta e salva a sessão."}
-              </p>
-              {remoteSession.displayMode === "novnc" && remoteSession.novncUrl ? (
-                <iframe
-                  title="Login remoto noVNC"
-                  src={remoteSession.novncUrl}
-                  className="bg-muted h-[520px] w-full rounded-lg border"
-                  allow="clipboard-read; clipboard-write"
-                />
               ) : (
-                <Alert>
-                  <AlertTitle>Login na janela local</AlertTitle>
-                  <AlertDescription>
-                    noVNC só sobe com Docker (`docker compose up`). Sem Docker
-                    neste Mac, o Chromium abre como janela do sistema — use essa
-                    janela para entrar.
-                  </AlertDescription>
-                </Alert>
+                <>
+                  <Button
+                    onClick={() => handleConnect("linkedin")}
+                    disabled={startingProvider !== null}
+                  >
+                    {startingProvider === "linkedin" ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <Link2Icon data-icon="inline-start" />
+                    )}
+                    {startingProvider === "linkedin"
+                      ? "Aguardando login…"
+                      : "Conectar (Chrome local)"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="self-start"
+                    onClick={() =>
+                      setShowCookieFallback((s) => ({
+                        ...s,
+                        linkedin: !s.linkedin,
+                      }))
+                    }
+                  >
+                    {showCookieFallback.linkedin
+                      ? "Ocultar avançado"
+                      : "Avançado: importar cookies"}
+                  </Button>
+                  {showCookieFallback.linkedin ? (
+                    <>
+                      <FieldGroup>
+                        <Field>
+                          <FieldLabel htmlFor="linkedin-cookies">
+                            Cookies
+                          </FieldLabel>
+                          <Textarea
+                            id="linkedin-cookies"
+                            value={linkedinCookies}
+                            onChange={(e) => setLinkedinCookies(e.target.value)}
+                            placeholder="li_at=AQED..."
+                            className="font-mono text-xs"
+                          />
+                          <FieldDescription>
+                            DevTools → Cookies → li_at (HttpOnly).
+                          </FieldDescription>
+                        </Field>
+                      </FieldGroup>
+                      <Button
+                        variant="outline"
+                        onClick={() => handleImportCookies("linkedin")}
+                        disabled={
+                          startingProvider !== null || connectMutation.isPending
+                        }
+                      >
+                        Importar cookies
+                      </Button>
+                    </>
+                  ) : null}
+                </>
               )}
-              <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                <Spinner data-icon="inline-start" />
-                Aguardando login…
-              </div>
             </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="flex flex-col gap-3 rounded-xl border p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium">LinkedIn</p>
-                  <Badge variant={linkedIn?.connected ? "default" : "secondary"}>
-                    {linkedIn?.connected ? "Conectado" : "Desconectado"}
-                  </Badge>
-                </div>
-                {linkedIn?.connected ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleDisconnect("linkedin")}
-                    disabled={disconnectMutation.isPending}
-                  >
-                    <UnlinkIcon data-icon="inline-start" />
-                    Desconectar
-                  </Button>
-                ) : (
-                  <>
-                    <Button
-                      onClick={() => handleRemoteConnect("linkedin")}
-                      disabled={startingProvider !== null}
-                    >
-                      {startingProvider === "linkedin" ? (
-                        <Spinner data-icon="inline-start" />
-                      ) : (
-                        <Link2Icon data-icon="inline-start" />
-                      )}
-                      {startingProvider === "linkedin"
-                        ? "Aguardando login…"
-                        : "Conectar via tela remota"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="self-start"
-                      onClick={() =>
-                        setShowCookieFallback((s) => ({
-                          ...s,
-                          linkedin: !s.linkedin,
-                        }))
-                      }
-                    >
-                      {showCookieFallback.linkedin
-                        ? "Ocultar fallback de cookies"
-                        : "Fallback: importar cookies (se o IP for bloqueado)"}
-                    </Button>
-                    {showCookieFallback.linkedin ? (
-                      <>
-                        <FieldGroup>
-                          <Field>
-                            <FieldLabel htmlFor="linkedin-cookies">
-                              Cookies
-                            </FieldLabel>
-                            <Textarea
-                              id="linkedin-cookies"
-                              value={linkedinCookies}
-                              onChange={(e) => setLinkedinCookies(e.target.value)}
-                              placeholder="li_at=AQED..."
-                              className="font-mono text-xs"
-                            />
-                            <FieldDescription>
-                              DevTools → Cookies → li_at (HttpOnly).
-                            </FieldDescription>
-                          </Field>
-                        </FieldGroup>
-                        <Button
-                          variant="outline"
-                          onClick={() => handleImportCookies("linkedin")}
-                          disabled={
-                            startingProvider !== null || connectMutation.isPending
-                          }
-                        >
-                          Importar cookies
-                        </Button>
-                      </>
-                    ) : null}
-                  </>
-                )}
-              </div>
 
-              <div className="flex flex-col gap-3 rounded-xl border p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium">Indeed</p>
-                  <Badge variant={indeed?.connected ? "default" : "secondary"}>
-                    {indeed?.connected ? "Conectado" : "Desconectado"}
-                  </Badge>
-                </div>
-                {indeed?.connected ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleDisconnect("indeed")}
-                    disabled={disconnectMutation.isPending}
-                  >
-                    <UnlinkIcon data-icon="inline-start" />
-                    Desconectar
-                  </Button>
-                ) : (
-                  <>
-                    <Button
-                      onClick={() => handleRemoteConnect("indeed")}
-                      disabled={startingProvider !== null}
-                    >
-                      {startingProvider === "indeed" ? (
-                        <Spinner data-icon="inline-start" />
-                      ) : (
-                        <Link2Icon data-icon="inline-start" />
-                      )}
-                      {startingProvider === "indeed"
-                        ? "Aguardando login…"
-                        : "Conectar via tela remota"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="self-start"
-                      onClick={() =>
-                        setShowCookieFallback((s) => ({
-                          ...s,
-                          indeed: !s.indeed,
-                        }))
-                      }
-                    >
-                      {showCookieFallback.indeed
-                        ? "Ocultar fallback de cookies"
-                        : "Fallback: importar cookies"}
-                    </Button>
-                    {showCookieFallback.indeed ? (
-                      <>
-                        <FieldGroup>
-                          <Field>
-                            <FieldLabel htmlFor="indeed-cookies">
-                              Cookies
-                            </FieldLabel>
-                            <Textarea
-                              id="indeed-cookies"
-                              value={indeedCookies}
-                              onChange={(e) => setIndeedCookies(e.target.value)}
-                              placeholder="PP=...; CTK=..."
-                              className="font-mono text-xs"
-                            />
-                          </Field>
-                        </FieldGroup>
-                        <Button
-                          variant="outline"
-                          onClick={() => handleImportCookies("indeed")}
-                          disabled={
-                            startingProvider !== null || connectMutation.isPending
-                          }
-                        >
-                          Importar cookies
-                        </Button>
-                      </>
-                    ) : null}
-                  </>
-                )}
+            <div className="flex flex-col gap-3 rounded-xl border p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-medium">Indeed</p>
+                <Badge variant={indeed?.connected ? "default" : "secondary"}>
+                  {indeed?.connected ? "Conectado" : "Desconectado"}
+                </Badge>
               </div>
+              {indeed?.connected ? (
+                <Button
+                  variant="outline"
+                  onClick={() => handleDisconnect("indeed")}
+                  disabled={disconnectMutation.isPending}
+                >
+                  <UnlinkIcon data-icon="inline-start" />
+                  Desconectar
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    onClick={() => handleConnect("indeed")}
+                    disabled={startingProvider !== null}
+                  >
+                    {startingProvider === "indeed" ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <Link2Icon data-icon="inline-start" />
+                    )}
+                    {startingProvider === "indeed"
+                      ? "Aguardando login…"
+                      : "Conectar (Chrome local)"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="self-start"
+                    onClick={() =>
+                      setShowCookieFallback((s) => ({
+                        ...s,
+                        indeed: !s.indeed,
+                      }))
+                    }
+                  >
+                    {showCookieFallback.indeed
+                      ? "Ocultar avançado"
+                      : "Avançado: importar cookies"}
+                  </Button>
+                  {showCookieFallback.indeed ? (
+                    <>
+                      <FieldGroup>
+                        <Field>
+                          <FieldLabel htmlFor="indeed-cookies">
+                            Cookies
+                          </FieldLabel>
+                          <Textarea
+                            id="indeed-cookies"
+                            value={indeedCookies}
+                            onChange={(e) => setIndeedCookies(e.target.value)}
+                            placeholder="PP=...; CTK=..."
+                            className="font-mono text-xs"
+                          />
+                        </Field>
+                      </FieldGroup>
+                      <Button
+                        variant="outline"
+                        onClick={() => handleImportCookies("indeed")}
+                        disabled={
+                          startingProvider !== null || connectMutation.isPending
+                        }
+                      >
+                        Importar cookies
+                      </Button>
+                    </>
+                  ) : null}
+                </>
+              )}
             </div>
-          )}
+          </div>
         </CardContent>
       </Card>
 
@@ -847,24 +685,6 @@ export function DashboardClient() {
                 : `Dar match nas selecionadas (${selectedIds.length})`}
             </Button>
             <Button
-              size="sm"
-              onClick={handleApplySelected}
-              disabled={
-                selectedEasyApplyCount === 0 ||
-                !linkedIn?.connected ||
-                applySelectedMutation.isPending
-              }
-            >
-              {applySelectedMutation.isPending ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <SendIcon data-icon="inline-start" />
-              )}
-              {applySelectedMutation.isPending
-                ? "Inscrevendo…"
-                : `Inscrever Easy Apply (${selectedEasyApplyCount})`}
-            </Button>
-            <Button
               variant="destructive"
               size="sm"
               onClick={handleDeleteSelected}
@@ -942,7 +762,7 @@ export function DashboardClient() {
                   Buscar vagas agora
                 </Button>
               ) : (
-                <Button onClick={() => handleRemoteConnect("linkedin")}>
+                <Button onClick={() => handleConnect("linkedin")}>
                   <Link2Icon data-icon="inline-start" />
                   Conectar LinkedIn
                 </Button>
@@ -954,7 +774,6 @@ export function DashboardClient() {
         <div className="flex flex-col gap-3">
           {jobsQuery.data?.map((item) => {
             const checked = selectedIds.includes(item.applicationId);
-            const easyApply = isEasyApplyJob(item);
             return (
               <Card key={item.applicationId} size="sm">
                 <CardHeader>
@@ -972,9 +791,6 @@ export function DashboardClient() {
                         <CardTitle className="truncate">{item.job.title}</CardTitle>
                         <CardDescription>
                           {item.job.company} · {item.job.location}
-                          {!easyApply
-                            ? " · inscrição automática só em Easy Apply"
-                            : ""}
                         </CardDescription>
                       </div>
                     </div>
@@ -982,16 +798,9 @@ export function DashboardClient() {
                       <Badge variant="outline">{item.matchScore}% match</Badge>
                       <StatusBadge status={item.status} />
                       <Badge variant="secondary">{item.job.source}</Badge>
-                      {item.job.source === "LINKEDIN" ? (
-                        <Badge
-                          variant={item.job.easyApply ? "default" : "outline"}
-                        >
-                          {item.job.easyApply === true
-                            ? "Easy Apply - Yes"
-                            : item.job.easyApply === false
-                              ? "Externa"
-                              : "Easy Apply - No"}
-                        </Badge>
+                      {item.job.source === "LINKEDIN" &&
+                      item.job.easyApply === true ? (
+                        <Badge variant="outline">Easy Apply</Badge>
                       ) : null}
                     </div>
                   </div>
