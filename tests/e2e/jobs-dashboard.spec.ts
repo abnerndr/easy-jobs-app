@@ -11,7 +11,11 @@ test("authenticated user can open dashboard search UI", async ({ page }) => {
   await expect(page).toHaveURL(/\/profile$/);
 
   await page.getByLabel(/Cargos desejados/).fill("Desenvolvedor Full Stack");
-  await page.getByLabel(/Stack técnica/).fill("React, Node");
+  const stack = page.getByLabel(/Stack técnica/);
+  await stack.fill("React");
+  await stack.press("Enter");
+  await stack.fill("Node");
+  await stack.press("Enter");
   await page.getByLabel("Localização").fill("Remoto, Brasil");
   await page.getByLabel(/Pretensão salarial/).fill("9000");
   await page.getByRole("checkbox", { name: "CLT" }).check();

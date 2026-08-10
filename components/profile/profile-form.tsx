@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TagInput } from "@/components/ui/tag-input";
 
 const EMPTY_VALUES: ProfileInput = {
   jobTitles: [],
@@ -146,21 +147,12 @@ function ProfileFormFields({
           name="techStack"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Stack técnica (separada por vírgula)</FormLabel>
-              <FormControl>
-                <Input
-                  value={field.value.join(", ")}
-                  onChange={(e) =>
-                    field.onChange(
-                      e.target.value
-                        .split(",")
-                        .map((v) => v.trim())
-                        .filter(Boolean)
-                    )
-                  }
-                  placeholder="Node, React, PostgreSQL"
-                />
-              </FormControl>
+              <FormLabel>Stack técnica</FormLabel>
+              <TagInput
+                value={field.value}
+                onChange={field.onChange}
+                placeholder="Ex.: Node — Enter para adicionar"
+              />
               <FormMessage />
             </FormItem>
           )}

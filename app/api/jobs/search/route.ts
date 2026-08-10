@@ -20,7 +20,7 @@ export async function POST() {
     }
 
     const result = await runJobSearch(session.user.id);
-    let message = `Encontramos ${result.created} vaga(s) com match (≥${result.minMatchScore}%) de ${result.searchTarget} pedidas (${(result.sourcesUsed ?? [result.source]).join(", ")}).`;
+    let message = `Encontramos ${result.created} vaga(s) com match (≥${result.minMatchScore}%) de ${result.searchTarget} pedidas (${(result.sourcesUsed ?? [result.source]).join(", ") || "nenhuma"}).`;
     if (result.created < result.searchTarget && result.pagesExhausted) {
       message +=
         " Não há mais resultados nas páginas seguintes com o filtro atual.";
@@ -30,6 +30,9 @@ export async function POST() {
     }
     if (result.alreadyHad > 0) {
       message += ` ${result.alreadyHad} já estavam na sua lista.`;
+    }
+    if (result.sourceErrors.length > 0) {
+      message += ` Avisos: ${result.sourceErrors.join(" ")}`;
     }
     return NextResponse.json({
       mode: "sync" as const,

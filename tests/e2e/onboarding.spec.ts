@@ -13,7 +13,11 @@ test("signup, create profile, and upload résumé", async ({ page }) => {
   await expect(page).toHaveURL(/\/profile$/);
 
   await page.getByLabel(/Cargos desejados/).fill("Desenvolvedor Backend Node");
-  await page.getByLabel(/Stack técnica/).fill("Node, PostgreSQL");
+  const stack = page.getByLabel(/Stack técnica/);
+  await stack.fill("Node");
+  await stack.press("Enter");
+  await stack.fill("PostgreSQL");
+  await stack.press("Enter");
   await page.getByLabel("Localização").fill("São Paulo, SP");
   await page.getByLabel(/Pretensão salarial/).fill("8000");
   await page.getByRole("checkbox", { name: "CLT" }).check();

@@ -4,8 +4,10 @@ import {
   scrapeIndeedJobs,
   scrapeLinkedInJobs,
 } from "@/lib/jobs/board-browser";
-import { buildDedupeKey, type JobSourceName, type NormalizedJob } from "@/lib/jobs/types";
+import { buildDedupeKey, type NormalizedJob } from "@/lib/jobs/types";
 import { sessionExists } from "@/lib/jobs/session-store";
+
+type BoardSource = "LINKEDIN" | "INDEED";
 
 export async function getOrCreateJobSettings(userId: string) {
   return prisma.userJobSettings.upsert({
@@ -64,8 +66,9 @@ export type JobSearchResult = {
   alreadyHad: number;
   searchTarget: number;
   minMatchScore: number;
-  source: JobSourceName | "MIXED";
-  sourcesUsed: JobSourceName[];
+  source: BoardSource | "MIXED";
+  sourcesUsed: BoardSource[];
+  sourceErrors: string[];
   pagesExhausted: boolean;
 };
 
@@ -100,63 +103,71 @@ export async function runJobSearch(userId: string): Promise<JobSearchResult> {
   const searchTarget = Math.max(1, settings.searchTarget ?? 10);
   const minMatchScore = settings.minMatchScore ?? 50;
 
-  // Oversample raw listings so the match filter can still fill the target.
-  // Scrapers paginate until this many listings (or pages run out).
-  const scrapeLimit = Math.min(100, Math.max(searchTarget * 5, searchTarget));
+  const activeCount = (linkedInOk ? 1 : 0) + (indeedOk ? 1 : 0);
+  // Each connected board scrapes independently so Indeed is never skipped
+  // just because LinkedIn already filled a shared quota.
+  const perSourceLimit = Math.min(
+    80,
+    Math.max(searchTarget * 4, Math.ceil((searchTarget * 5) / activeCount))
+  );
 
-  const query = {
+  const baseQuery = {
     jobTitles: profile.jobTitles,
     location: profile.location,
     workMode: profile.workMode,
     techStack: profile.techStack,
-    limit: scrapeLimit,
+    limit: perSourceLimit,
   };
 
   const collected: NormalizedJob[] = [];
-  const sourcesUsed: JobSourceName[] = [];
-  const errors: string[] = [];
+  const sourcesUsed: BoardSource[] = [];
+  const sourceErrors: string[] = [];
   const seenKeys = new Set<string>();
 
   async function takeFromSource(
-    source: JobSourceName,
+    source: BoardSource,
     scrape: () => Promise<NormalizedJob[]>
   ) {
-    if (collected.length >= scrapeLimit) return;
     try {
       const jobs = await scrape();
+      let added = 0;
       for (const job of jobs) {
         const key = buildDedupeKey(job);
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
         collected.push(job);
-        if (collected.length >= scrapeLimit) break;
+        added += 1;
       }
-      if (jobs.length > 0) sourcesUsed.push(source);
+      if (added > 0) sourcesUsed.push(source);
+      else if (jobs.length === 0) {
+        sourceErrors.push(`${source}: nenhuma vaga encontrada.`);
+      }
       await prisma.jobBoardConnection.update({
         where: { userId_provider: { userId, provider: source } },
         data: { lastUsedAt: new Date() },
       });
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : `${source} falhou`);
+      sourceErrors.push(
+        error instanceof Error ? error.message : `${source} falhou`
+      );
     }
   }
 
+  // Run sources sequentially (shared machine / headed chrome). Always both
+  // when connected — do not gate Indeed on LinkedIn fill.
   if (linkedInOk) {
-    await takeFromSource("LINKEDIN", () => scrapeLinkedInJobs(userId, query));
-  }
-  if (indeedOk && collected.length < scrapeLimit) {
-    await takeFromSource("INDEED", () =>
-      scrapeIndeedJobs(userId, {
-        ...query,
-        limit: scrapeLimit - collected.length,
-      })
+    await takeFromSource("LINKEDIN", () =>
+      scrapeLinkedInJobs(userId, baseQuery)
     );
+  }
+  if (indeedOk) {
+    await takeFromSource("INDEED", () => scrapeIndeedJobs(userId, baseQuery));
   }
 
   if (collected.length === 0) {
     throw new Error(
-      errors.length > 0
-        ? errors.join(" ")
+      sourceErrors.length > 0
+        ? sourceErrors.join(" ")
         : "Nenhuma vaga encontrada. Tente outros critérios no perfil."
     );
   }
@@ -206,7 +217,7 @@ export async function runJobSearch(userId: string): Promise<JobSearchResult> {
     }
   }
 
-  const source: JobSourceName | "MIXED" =
+  const source: BoardSource | "MIXED" =
     sourcesUsed.length === 1 ? sourcesUsed[0] : "MIXED";
 
   return {
@@ -217,6 +228,7 @@ export async function runJobSearch(userId: string): Promise<JobSearchResult> {
     minMatchScore,
     source,
     sourcesUsed,
+    sourceErrors,
     pagesExhausted: created < searchTarget,
   };
 }

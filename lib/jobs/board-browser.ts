@@ -363,6 +363,59 @@ export async function withSession<T>(
   }
 }
 
+async function scrollJobsList(page: Page) {
+  const list = page
+    .locator(
+      ".jobs-search-results-list, .scaffold-layout__list, ul.jobs-search__results-list, #mosaic-jobResults, .jobsearch-ResultsList"
+    )
+    .first();
+  if ((await list.count()) === 0) {
+    await page.evaluate(() => window.scrollBy(0, 1200));
+    await page.waitForTimeout(800);
+    return;
+  }
+  for (let i = 0; i < 4; i++) {
+    await list.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await page.waitForTimeout(700);
+  }
+}
+
+async function clickNextPage(page: Page): Promise<boolean> {
+  const next = page
+    .locator(
+      [
+        "button.jobs-search-pagination__button--next",
+        "button.artdeco-pagination__button--next",
+        'button[aria-label="Next"]',
+        'button[aria-label="Próxima"]',
+        'button[aria-label="Next Page"]',
+        'a[aria-label="Next"]',
+        'a[aria-label="Próxima"]',
+        'a[data-testid="pagination-page-next"]',
+        'nav[role="navigation"] a[aria-label*="ext"]',
+        'a[aria-label*="Próxima"]',
+      ].join(", ")
+    )
+    .first();
+
+  if ((await next.count()) === 0) return false;
+  const disabled =
+    (await next.getAttribute("disabled")) != null ||
+    (await next.getAttribute("aria-disabled")) === "true" ||
+    (await next.evaluate((el) => el.classList.contains("disabled")).catch(() => false));
+  if (disabled) return false;
+
+  try {
+    await next.click({ timeout: 5_000 });
+    await page.waitForTimeout(2500);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function scrapeLinkedInJobs(
   userId: string,
   query: SearchQuery
@@ -370,27 +423,55 @@ export async function scrapeLinkedInJobs(
   const keywords = encodeURIComponent(englishSearchTerms(query));
   const pageSize = 25;
   const target = Math.max(1, query.limit ?? pageSize);
-  const maxPages = Math.min(10, Math.ceil(target / pageSize) + 2);
-  const startPage = Math.max(0, query.page ?? 0);
+  // Enough pages to fill target even with partial pages.
+  const maxPages = Math.min(12, Math.max(3, Math.ceil(target / 10) + 2));
+  const location = encodeURIComponent(query.location || "Brazil");
 
   return withSession(userId, "LINKEDIN", async (page) => {
     const jobs: NormalizedJob[] = [];
     const seen = new Set<string>();
 
-    for (let pageIndex = startPage; pageIndex < startPage + maxPages && jobs.length < target; pageIndex++) {
-      const start = pageIndex * pageSize;
-      await page.goto(
-        `https://www.linkedin.com/jobs/search/?keywords=${keywords}&location=${encodeURIComponent(query.location || "Brazil")}&f_TPR=r86400&f_AL=true&start=${start}`,
-        { waitUntil: "domcontentloaded", timeout: 60_000 }
-      );
-      await page.waitForTimeout(2500);
+    const searchUrl = `https://www.linkedin.com/jobs/search/?keywords=${keywords}&location=${location}&f_TPR=r86400&start=0`;
+    await page.goto(searchUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+    await page.waitForTimeout(2500);
+
+    if (/login|authwall|checkpoint/i.test(page.url())) {
+      throw new Error("Sessão LinkedIn expirada. Conecte novamente.");
+    }
+
+    for (let pageIndex = 0; pageIndex < maxPages && jobs.length < target; pageIndex++) {
+      // Logged-in LinkedIn often ignores start= on full reload; prefer
+      // in-page next + scroll. Fall back to start= only when next fails.
+      if (pageIndex > 0) {
+        const clicked = await clickNextPage(page);
+        if (!clicked) {
+          const start = pageIndex * pageSize;
+          await page.goto(
+            `https://www.linkedin.com/jobs/search/?keywords=${keywords}&location=${location}&f_TPR=r86400&start=${start}`,
+            { waitUntil: "domcontentloaded", timeout: 60_000 }
+          );
+          await page.waitForTimeout(2500);
+        }
+      }
 
       if (/login|authwall|checkpoint/i.test(page.url())) {
         throw new Error("Sessão LinkedIn expirada. Conecte novamente.");
       }
 
+      await scrollJobsList(page);
+
       const cards = page.locator(
-        "ul.jobs-search__results-list li, .jobs-search-results-list li, div.job-card-container"
+        [
+          "li.jobs-search-results__list-item",
+          "li.scaffold-layout__list-item",
+          "ul.jobs-search__results-list > li",
+          ".jobs-search-results-list li.ember-view",
+          "div.job-card-container[data-job-id]",
+          "div.job-card-list",
+        ].join(", ")
       );
       const count = await cards.count();
       if (count === 0) break;
@@ -398,27 +479,70 @@ export async function scrapeLinkedInJobs(
       let addedThisPage = 0;
       for (let i = 0; i < count && jobs.length < target; i++) {
         const card = cards.nth(i);
+        const dataJobId =
+          (await card.getAttribute("data-job-id").catch(() => null)) ||
+          (await card
+            .locator("[data-job-id]")
+            .first()
+            .getAttribute("data-job-id")
+            .catch(() => null)) ||
+          "";
+
         const title =
-          (await card.locator("a.job-card-list__title, .job-card-list__title--link, a[href*='/jobs/view/']").first().textContent().catch(() => null))?.trim() ||
-          "";
+          (
+            await card
+              .locator(
+                "a.job-card-list__title--link, a.job-card-container__link, a.job-card-list__title, a[href*='/jobs/view/'], .base-search-card__title"
+              )
+              .first()
+              .textContent()
+              .catch(() => null)
+          )?.trim() || "";
         const company =
-          (await card.locator(".job-card-container__primary-description, .artdeco-entity-lockup__subtitle").first().textContent().catch(() => null))?.trim() ||
-          "Empresa não informada";
-        const location =
-          (await card.locator(".job-card-container__metadata-item, .job-card-container__metadata-wrapper").first().textContent().catch(() => null))?.trim() ||
-          query.location;
+          (
+            await card
+              .locator(
+                ".job-card-container__primary-description, .artdeco-entity-lockup__subtitle, .job-card-container__company-name, .base-search-card__subtitle"
+              )
+              .first()
+              .textContent()
+              .catch(() => null)
+          )?.trim() || "Empresa não informada";
+        const jobLocation =
+          (
+            await card
+              .locator(
+                ".job-card-container__metadata-item, .job-card-container__metadata-wrapper li, .job-search-card__location"
+              )
+              .first()
+              .textContent()
+              .catch(() => null)
+          )?.trim() || query.location;
         const href =
-          (await card.locator("a[href*='/jobs/view/']").first().getAttribute("href").catch(() => null)) ||
-          "";
-        if (!title || !href) continue;
+          (await card
+            .locator("a[href*='/jobs/view/'], a.job-card-list__title--link, a.base-card__full-link")
+            .first()
+            .getAttribute("href")
+            .catch(() => null)) || "";
+        if (!title || (!href && !dataJobId)) continue;
 
-        const cardText = ((await card.innerText().catch(() => "")) || "").toLowerCase();
-        const hasEasyLabel = /easy apply|candidatura simplificada/.test(cardText);
-        const easyApply = hasEasyLabel || !/candidatura na empresa|external apply/.test(cardText);
+        const cardText = (
+          (await card.innerText().catch(() => "")) || ""
+        ).toLowerCase();
+        const hasEasyLabel = /easy apply|candidatura simplificada/.test(
+          cardText
+        );
+        const easyApply =
+          hasEasyLabel ||
+          !/candidatura na empresa|external apply/.test(cardText);
 
-        const url = href.startsWith("http") ? href.split("?")[0] : `https://www.linkedin.com${href.split("?")[0]}`;
+        const url = href
+          ? href.startsWith("http")
+            ? href.split("?")[0]
+            : `https://www.linkedin.com${href.split("?")[0]}`
+          : `https://www.linkedin.com/jobs/view/${dataJobId}`;
         const idMatch = url.match(/\/jobs\/view\/(\d+)/);
-        const externalId = idMatch?.[1] || url;
+        const externalId = dataJobId || idMatch?.[1] || url;
         if (seen.has(externalId)) continue;
         seen.add(externalId);
 
@@ -427,10 +551,10 @@ export async function scrapeLinkedInJobs(
           externalId,
           title,
           company,
-          location,
+          location: jobLocation,
           url,
-          description: `${title} em ${company} — ${location}`,
-          workMode: inferWorkMode(`${title} ${location}`),
+          description: `${title} em ${company} — ${jobLocation}`,
+          workMode: inferWorkMode(`${title} ${jobLocation}`),
           easyApply,
         });
         addedThisPage += 1;
@@ -451,26 +575,51 @@ export async function scrapeIndeedJobs(
   const l = encodeURIComponent(query.location || "Brasil");
   const pageSize = 15;
   const target = Math.max(1, query.limit ?? pageSize);
-  const maxPages = Math.min(10, Math.ceil(target / pageSize) + 2);
-  const startPage = Math.max(0, query.page ?? 0);
+  const maxPages = Math.min(12, Math.max(3, Math.ceil(target / 8) + 2));
 
   return withSession(userId, "INDEED", async (page) => {
     const jobs: NormalizedJob[] = [];
     const seen = new Set<string>();
 
-    for (let pageIndex = startPage; pageIndex < startPage + maxPages && jobs.length < target; pageIndex++) {
-      const start = pageIndex * pageSize;
-      await page.goto(`https://br.indeed.com/jobs?q=${q}&l=${l}&sort=date&start=${start}`, {
-        waitUntil: "domcontentloaded",
-        timeout: 60_000,
-      });
-      await page.waitForTimeout(2500);
+    await page.goto(`https://br.indeed.com/jobs?q=${q}&l=${l}&sort=date&start=0`, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+    await page.waitForTimeout(2500);
 
-      if (/auth|login|challenge/i.test(page.url())) {
+    if (/auth|login|challenge|account\/login/i.test(page.url())) {
+      throw new Error("Sessão Indeed expirada. Conecte novamente.");
+    }
+
+    for (let pageIndex = 0; pageIndex < maxPages && jobs.length < target; pageIndex++) {
+      if (pageIndex > 0) {
+        const clicked = await clickNextPage(page);
+        if (!clicked) {
+          const start = pageIndex * pageSize;
+          await page.goto(
+            `https://br.indeed.com/jobs?q=${q}&l=${l}&sort=date&start=${start}`,
+            { waitUntil: "domcontentloaded", timeout: 60_000 }
+          );
+          await page.waitForTimeout(2500);
+        }
+      }
+
+      if (/auth|login|challenge|account\/login/i.test(page.url())) {
         throw new Error("Sessão Indeed expirada. Conecte novamente.");
       }
 
-      const cards = page.locator(".job_seen_beacon, .resultContent, li.css-5lfssg");
+      await scrollJobsList(page);
+
+      const cards = page.locator(
+        [
+          "div.job_seen_beacon",
+          "li.css-5lfssg",
+          "div.resultContent",
+          "div[data-jk]",
+          "td.resultContent",
+          "#mosaic-provider-jobcards li",
+        ].join(", ")
+      );
       const count = await cards.count();
       if (count === 0) break;
 
@@ -478,29 +627,67 @@ export async function scrapeIndeedJobs(
       for (let i = 0; i < count && jobs.length < target; i++) {
         const card = cards.nth(i);
         const title =
-          (await card.locator("h2.jobTitle span[title], h2 a, .jobTitle").first().getAttribute("title").catch(() => null)) ||
-          (await card.locator("h2.jobTitle, .jobTitle").first().textContent().catch(() => null))?.trim() ||
+          (await card
+            .locator("h2.jobTitle span[title], h2 a span, h2.jobTitle a, .jobTitle")
+            .first()
+            .getAttribute("title")
+            .catch(() => null)) ||
+          (
+            await card
+              .locator("h2.jobTitle, .jobTitle, h2 a")
+              .first()
+              .textContent()
+              .catch(() => null)
+          )?.trim() ||
           "";
         const company =
-          (await card.locator("[data-testid='company-name'], .companyName").first().textContent().catch(() => null))?.trim() ||
-          "Empresa não informada";
-        const location =
-          (await card.locator("[data-testid='text-location'], .companyLocation").first().textContent().catch(() => null))?.trim() ||
-          query.location;
+          (
+            await card
+              .locator(
+                "[data-testid='company-name'], .companyName, span[data-testid='company-name']"
+              )
+              .first()
+              .textContent()
+              .catch(() => null)
+          )?.trim() || "Empresa não informada";
+        const jobLocation =
+          (
+            await card
+              .locator(
+                "[data-testid='text-location'], .companyLocation, div[data-testid='text-location']"
+              )
+              .first()
+              .textContent()
+              .catch(() => null)
+          )?.trim() || query.location;
         const snippet =
-          (await card.locator("[data-testid='job-snippet'], .job-snippet").first().textContent().catch(() => null))?.trim() ||
-          title;
+          (
+            await card
+              .locator(
+                "[data-testid='job-snippet'], .job-snippet, .jobCardShelfContainer"
+              )
+              .first()
+              .textContent()
+              .catch(() => null)
+          )?.trim() || title;
         const jk =
-          (await card.locator("[data-jk]").first().getAttribute("data-jk").catch(() => null)) ||
           (await card.getAttribute("data-jk").catch(() => null)) ||
+          (await card
+            .locator("[data-jk]")
+            .first()
+            .getAttribute("data-jk")
+            .catch(() => null)) ||
           "";
         const href =
-          (await card.locator("a[data-jk], h2 a").first().getAttribute("href").catch(() => null)) ||
-          (jk ? `/viewjob?jk=${jk}` : "");
+          (await card
+            .locator("a[data-jk], h2 a, a.jcs-JobTitle")
+            .first()
+            .getAttribute("href")
+            .catch(() => null)) || (jk ? `/viewjob?jk=${jk}` : "");
 
         if (!title || (!jk && !href)) continue;
         const url = href.startsWith("http")
-          ? href
+          ? href.split("&from=")[0]
           : `https://br.indeed.com${href.startsWith("/") ? href : `/${href}`}`;
         const externalId = jk || url;
         if (seen.has(externalId)) continue;
@@ -511,10 +698,10 @@ export async function scrapeIndeedJobs(
           externalId,
           title: stripHtml(title),
           company,
-          location,
+          location: jobLocation,
           url,
           description: stripHtml(snippet).slice(0, 2000),
-          workMode: inferWorkMode(`${title} ${snippet} ${location}`),
+          workMode: inferWorkMode(`${title} ${snippet} ${jobLocation}`),
           easyApply: false,
         });
         addedThisPage += 1;
