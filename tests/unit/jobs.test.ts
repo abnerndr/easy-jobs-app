@@ -60,6 +60,12 @@ describe("buildDemoJobs", () => {
 });
 
 describe("jobSettingsSchema", () => {
+  it("accepts payload without minMatchScore (backward compat)", () => {
+    expect(
+      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, autoQueue: true }).success
+    ).toBe(true);
+  });
+
   it("accepts valid daily limit and minMatchScore", () => {
     expect(
       jobSettingsSchema.safeParse({ dailyApplyLimit: 10, minMatchScore: 50 }).success

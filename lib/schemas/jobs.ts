@@ -17,7 +17,7 @@ export const jobSettingsSchema = z.object({
     .min(1, { error: "O limite mínimo é 1." })
     .max(100, { error: "O limite máximo é 100." }),
   autoQueue: z.boolean().optional(),
-  minMatchScore: z.number().int().min(0).max(100),
+  minMatchScore: z.number().int().min(0).max(100).optional(),
 });
 
 export const applicationsQuerySchema = z.object({
