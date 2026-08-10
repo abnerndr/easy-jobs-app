@@ -133,6 +133,7 @@ enum JobBoardProvider {
 enum ApplicationStatus {
   FOUND
   QUEUED
+  MATCHED
   APPLIED
   EXTERNAL_REDIRECT
   FAILED
@@ -183,6 +184,7 @@ model UserJobSettings {
   userId          String  @unique
   dailyApplyLimit Int     @default(10)
   autoQueue       Boolean @default(true)
+  minMatchScore   Int     @default(50)
   user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 

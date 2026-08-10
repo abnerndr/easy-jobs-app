@@ -60,18 +60,47 @@ describe("buildDemoJobs", () => {
 });
 
 describe("jobSettingsSchema", () => {
-  it("accepts a valid daily limit", () => {
-    expect(jobSettingsSchema.safeParse({ dailyApplyLimit: 10 }).success).toBe(true);
+  it("accepts valid daily limit and minMatchScore", () => {
+    expect(
+      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, minMatchScore: 50 }).success
+    ).toBe(true);
   });
 
   it("rejects limit below 1", () => {
-    expect(jobSettingsSchema.safeParse({ dailyApplyLimit: 0 }).success).toBe(false);
+    expect(
+      jobSettingsSchema.safeParse({ dailyApplyLimit: 0, minMatchScore: 50 }).success
+    ).toBe(false);
+  });
+
+  it("rejects minMatchScore below 0", () => {
+    expect(
+      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, minMatchScore: -1 }).success
+    ).toBe(false);
+  });
+
+  it("rejects minMatchScore above 100", () => {
+    expect(
+      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, minMatchScore: 101 }).success
+    ).toBe(false);
+  });
+
+  it("accepts minMatchScore at bounds 0 and 100", () => {
+    expect(
+      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, minMatchScore: 0 }).success
+    ).toBe(true);
+    expect(
+      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, minMatchScore: 100 }).success
+    ).toBe(true);
   });
 });
 
 describe("applicationsQuerySchema", () => {
   it("accepts a known status", () => {
     expect(applicationsQuerySchema.safeParse({ status: "QUEUED" }).success).toBe(true);
+  });
+
+  it("accepts MATCHED status", () => {
+    expect(applicationsQuerySchema.safeParse({ status: "MATCHED" }).success).toBe(true);
   });
 
   it("rejects an unknown status", () => {
