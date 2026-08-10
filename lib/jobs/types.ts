@@ -17,7 +17,10 @@ export type SearchQuery = {
   location: string;
   workMode?: string;
   techStack?: string[];
+  /** How many jobs to collect (across pages). */
   limit?: number;
+  /** 0-based results page for pagination. */
+  page?: number;
 };
 
 export function buildDedupeKey(job: Pick<NormalizedJob, "source" | "externalId" | "url">): string {

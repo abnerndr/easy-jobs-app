@@ -3,13 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { getConfiguredAiProvider, type ApplicantContext } from "@/lib/ai/form-fill";
 import { applyLinkedInEasyApply } from "@/lib/jobs/easy-apply";
 import { sessionExists } from "@/lib/jobs/session-store";
-import { getOrCreateJobSettings } from "@/lib/jobs/search";
-
-function startOfUtcDay(date = new Date()) {
-  return new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
-  );
-}
 
 export type ApplyBatchResult = {
   processed: number;
@@ -17,7 +10,7 @@ export type ApplyBatchResult = {
   external: number;
   failed: number;
   skipped: number;
-  remainingApplyQuota: number;
+  remainingApplyQuota: number | null;
   results: {
     applicationId: string;
     status: string;
@@ -68,16 +61,6 @@ async function loadApplicantContext(userId: string): Promise<{
   };
 }
 
-async function countAppliedToday(userId: string) {
-  return prisma.application.count({
-    where: {
-      userId,
-      status: "APPLIED",
-      updatedAt: { gte: startOfUtcDay() },
-    },
-  });
-}
-
 /**
  * Applies to selected LinkedIn Easy Apply jobs (sync, Playwright).
  */
@@ -100,21 +83,8 @@ export async function runApplySelected(
     throw new Error("Conecte o LinkedIn antes de se candidatar via Easy Apply.");
   }
 
-  const settings = await getOrCreateJobSettings(userId);
-  const appliedToday = await countAppliedToday(userId);
-  const applyQuota = Math.max(0, settings.dailyApplyLimit - appliedToday);
-  if (applyQuota === 0) {
-    return {
-      processed: 0,
-      applied: 0,
-      external: 0,
-      failed: 0,
-      skipped: 0,
-      remainingApplyQuota: 0,
-      results: [],
-      message: "Limite diário de candidaturas atingido.",
-    };
-  }
+  // Easy Apply está desativado na UI; sem cota diária — processa o lote pedido.
+  const applyQuota = applicationIds.length;
 
   const { profile, resumePath } = await loadApplicantContext(userId);
 
@@ -221,10 +191,6 @@ export async function runApplySelected(
   }
 
   const skippedNotLinkedIn = apps.filter((a) => a.job.source !== "LINKEDIN").length;
-  const remainingApplyQuota = Math.max(
-    0,
-    settings.dailyApplyLimit - (await countAppliedToday(userId))
-  );
 
   return {
     processed: toProcess.length,
@@ -232,7 +198,7 @@ export async function runApplySelected(
     external,
     failed,
     skipped: skipped + skippedNotLinkedIn,
-    remainingApplyQuota,
+    remainingApplyQuota: null,
     results,
     message:
       toProcess.length === 0

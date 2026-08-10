@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireApiSession } from "@/lib/session";
 import { errorResponse, validationErrorResponse } from "@/lib/api-response";
 import { jobSettingsSchema } from "@/lib/schemas/jobs";
-import { countTodayUsage, getOrCreateJobSettings } from "@/lib/jobs/search";
+import { getOrCreateJobSettings } from "@/lib/jobs/search";
 
 export async function GET() {
   const session = await requireApiSession();
@@ -11,17 +11,12 @@ export async function GET() {
 
   try {
     const settings = await getOrCreateJobSettings(session.user.id);
-    const usedToday = await countTodayUsage(session.user.id);
 
     return NextResponse.json({
       settings: {
-        dailyApplyLimit: settings.dailyApplyLimit,
+        searchTarget: settings.searchTarget,
         autoQueue: settings.autoQueue,
         minMatchScore: settings.minMatchScore ?? 50,
-      },
-      usage: {
-        usedToday,
-        remainingToday: Math.max(0, settings.dailyApplyLimit - usedToday),
       },
     });
   } catch (error) {
@@ -45,12 +40,12 @@ export async function PATCH(request: Request) {
       where: { userId: session.user.id },
       create: {
         userId: session.user.id,
-        dailyApplyLimit: parsed.data.dailyApplyLimit,
+        searchTarget: parsed.data.searchTarget,
         autoQueue: parsed.data.autoQueue ?? true,
         minMatchScore: parsed.data.minMatchScore ?? 50,
       },
       update: {
-        dailyApplyLimit: parsed.data.dailyApplyLimit,
+        searchTarget: parsed.data.searchTarget,
         ...(parsed.data.autoQueue !== undefined
           ? { autoQueue: parsed.data.autoQueue }
           : {}),
@@ -60,17 +55,11 @@ export async function PATCH(request: Request) {
       },
     });
 
-    const usedToday = await countTodayUsage(session.user.id);
-
     return NextResponse.json({
       settings: {
-        dailyApplyLimit: settings.dailyApplyLimit,
+        searchTarget: settings.searchTarget,
         autoQueue: settings.autoQueue,
         minMatchScore: settings.minMatchScore ?? 50,
-      },
-      usage: {
-        usedToday,
-        remainingToday: Math.max(0, settings.dailyApplyLimit - usedToday),
       },
     });
   } catch (error) {

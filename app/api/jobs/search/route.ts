@@ -19,14 +19,17 @@ export async function POST() {
       return errorResponse("Complete o perfil antes de buscar vagas.", 400);
     }
 
-    // Always sync: job board scrapes need the Node process (Playwright).
     const result = await runJobSearch(session.user.id);
-    let message =
-      result.created === 0 && result.remainingToday === 0
-        ? "Limite diário atingido."
-        : `Encontramos ${result.created} vaga(s) reais (${(result.sourcesUsed ?? [result.source]).join(", ")}).`;
+    let message = `Encontramos ${result.created} vaga(s) com match (≥${result.minMatchScore}%) de ${result.searchTarget} pedidas (${(result.sourcesUsed ?? [result.source]).join(", ")}).`;
+    if (result.created < result.searchTarget && result.pagesExhausted) {
+      message +=
+        " Não há mais resultados nas páginas seguintes com o filtro atual.";
+    }
     if (result.skippedMinMatch > 0) {
-      message += ` ${result.skippedMinMatch} vaga(s) ficaram abaixo do match mínimo (${result.minMatchScore}%).`;
+      message += ` ${result.skippedMinMatch} vaga(s) ficaram abaixo do match mínimo.`;
+    }
+    if (result.alreadyHad > 0) {
+      message += ` ${result.alreadyHad} já estavam na sua lista.`;
     }
     return NextResponse.json({
       mode: "sync" as const,

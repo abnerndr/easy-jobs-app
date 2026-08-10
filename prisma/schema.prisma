@@ -180,12 +180,13 @@ model Application {
 }
 
 model UserJobSettings {
-  id              String  @id @default(cuid())
-  userId          String  @unique
-  dailyApplyLimit Int     @default(10)
-  autoQueue       Boolean @default(true)
-  minMatchScore   Int     @default(50)
-  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String  @id @default(cuid())
+  userId        String  @unique
+  /// Quantas vagas com match mínimo buscar por clique em "Buscar vagas".
+  searchTarget  Int     @default(10)
+  autoQueue     Boolean @default(true)
+  minMatchScore Int     @default(50)
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model JobBoardConnection {

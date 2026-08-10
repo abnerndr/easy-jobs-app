@@ -11,11 +11,11 @@ export const APPLICATION_STATUS_VALUES = [
 ] as const;
 
 export const jobSettingsSchema = z.object({
-  dailyApplyLimit: z
+  searchTarget: z
     .number()
     .int()
-    .min(1, { error: "O limite mínimo é 1." })
-    .max(100, { error: "O limite máximo é 100." }),
+    .min(1, { error: "O mínimo por busca é 1." })
+    .max(100, { error: "O máximo por busca é 100." }),
   autoQueue: z.boolean().optional(),
   minMatchScore: z.number().int().min(0).max(100).optional(),
 });

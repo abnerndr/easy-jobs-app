@@ -25,7 +25,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
@@ -87,7 +86,6 @@ export function DashboardClient() {
     indeed: boolean;
   }>({ linkedin: false, indeed: false });
   const profile = profileQuery.data;
-  const usage = settingsQuery.data?.usage;
   const settings = settingsQuery.data?.settings;
   const canSearch = connectionsQuery.data?.canSearch ?? false;
   const linkedIn = connectionsQuery.data?.connections.find(
@@ -112,21 +110,20 @@ export function DashboardClient() {
     setSelectedIds(checked ? allIds : []);
   }
 
-  const limitValue = limitDraft ?? String(settings?.dailyApplyLimit ?? 10);
+  const limitValue = limitDraft ?? String(settings?.searchTarget ?? 10);
   const minMatchValue =
     minMatchDraft ?? String(settings?.minMatchScore ?? 50);
-  const usedToday = usage?.usedToday ?? 0;
-  const dailyLimit = settings?.dailyApplyLimit ?? 10;
-  const remainingToday = usage?.remainingToday ?? 0;
-  const progressValue =
-    dailyLimit > 0 ? Math.min(100, Math.round((usedToday / dailyLimit) * 100)) : 0;
-  const atLimit = remainingToday === 0;
 
   async function handleSaveSettings() {
-    const dailyApplyLimit = Number(limitValue);
+    const searchTarget = Number(limitValue);
     const minMatchScore = Number(minMatchValue);
-    if (!Number.isFinite(dailyApplyLimit) || !Number.isInteger(dailyApplyLimit)) {
-      toast.error("Informe um limite diário inteiro válido.");
+    if (
+      !Number.isFinite(searchTarget) ||
+      !Number.isInteger(searchTarget) ||
+      searchTarget < 1 ||
+      searchTarget > 100
+    ) {
+      toast.error("Informe um alvo por busca inteiro entre 1 e 100.");
       return;
     }
     if (
@@ -140,7 +137,7 @@ export function DashboardClient() {
     }
     try {
       await saveSettings.mutateAsync({
-        dailyApplyLimit,
+        searchTarget,
         minMatchScore,
         autoQueue: settings?.autoQueue ?? true,
       });
@@ -544,20 +541,12 @@ export function DashboardClient() {
               </AlertDescription>
             </Alert>
           )}
-          {atLimit && (
-            <Alert>
-              <AlertTitle>Limite diário atingido</AlertTitle>
-              <AlertDescription>
-                Aumente o limite abaixo ou volte amanhã para novas buscas.
-              </AlertDescription>
-            </Alert>
-          )}
         </CardContent>
         <CardFooter className="flex flex-wrap gap-3">
           <Button
             size="lg"
             onClick={handleSearch}
-            disabled={!canSearch || searchMutation.isPending || atLimit}
+            disabled={!canSearch || searchMutation.isPending}
           >
             {searchMutation.isPending ? (
               <Spinner data-icon="inline-start" />
@@ -572,80 +561,64 @@ export function DashboardClient() {
         </CardFooter>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Uso de hoje</CardTitle>
-            <CardDescription>
-              {usedToday} de {dailyLimit} vagas · {remainingToday} restantes
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <Progress value={progressValue} />
-            <p className="text-muted-foreground text-sm">
-              Conta encontradas, enfileiradas e aplicadas no dia.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Configurações de busca</CardTitle>
-            <CardDescription>
-              Limite diário e filtro de compatibilidade com seu perfil.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FieldGroup>
-              <Field orientation="horizontal">
-                <FieldLabel htmlFor="daily-limit">Limite diário</FieldLabel>
-                <Input
-                  id="daily-limit"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={limitValue}
-                  onChange={(e) => setLimitDraft(e.target.value)}
-                  className="max-w-28"
-                />
-              </Field>
-              <FieldDescription>
-                Quantas vagas podem entrar na fila por dia (1–100). Padrão: 10.
-              </FieldDescription>
-              <Field orientation="horizontal">
-                <FieldLabel htmlFor="min-match">Match mínimo (%)</FieldLabel>
-                <Input
-                  id="min-match"
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={minMatchValue}
-                  onChange={(e) => setMinMatchDraft(e.target.value)}
-                  className="max-w-28"
-                />
-              </Field>
-              <FieldDescription>
-                Só entram vagas com match igual ou acima deste percentual após a
-                busca. Padrão: 50%.
-              </FieldDescription>
-            </FieldGroup>
-          </CardContent>
-          <CardFooter>
-            <Button
-              variant="outline"
-              onClick={handleSaveSettings}
-              disabled={saveSettings.isPending}
-            >
-              {saveSettings.isPending ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <Settings2Icon data-icon="inline-start" />
-              )}
-              Salvar configurações
-            </Button>
-          </CardFooter>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Configurações de busca</CardTitle>
+          <CardDescription>
+            Alvo por clique em “Buscar vagas” e filtro de compatibilidade.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <Field orientation="horizontal">
+              <FieldLabel htmlFor="search-target">Vagas por busca</FieldLabel>
+              <Input
+                id="search-target"
+                type="number"
+                min={1}
+                max={100}
+                value={limitValue}
+                onChange={(e) => setLimitDraft(e.target.value)}
+                className="max-w-28"
+              />
+            </Field>
+            <FieldDescription>
+              Quantas vagas com match buscar por vez (1–100). A busca paginha
+              até achar esse número ou acabar as páginas. Padrão: 10.
+            </FieldDescription>
+            <Field orientation="horizontal">
+              <FieldLabel htmlFor="min-match">Match mínimo (%)</FieldLabel>
+              <Input
+                id="min-match"
+                type="number"
+                min={0}
+                max={100}
+                value={minMatchValue}
+                onChange={(e) => setMinMatchDraft(e.target.value)}
+                className="max-w-28"
+              />
+            </Field>
+            <FieldDescription>
+              Só entram vagas com match igual ou acima deste percentual. Padrão:
+              50%.
+            </FieldDescription>
+          </FieldGroup>
+        </CardContent>
+        <CardFooter>
+          <Button
+            variant="outline"
+            onClick={handleSaveSettings}
+            disabled={saveSettings.isPending}
+          >
+            {saveSettings.isPending ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <Settings2Icon data-icon="inline-start" />
+            )}
+            Salvar configurações
+          </Button>
+        </CardFooter>
+      </Card>
 
       <Separator />
 
@@ -753,7 +726,7 @@ export function DashboardClient() {
               {canSearch ? (
                 <Button
                   onClick={handleSearch}
-                  disabled={searchMutation.isPending || atLimit}
+                  disabled={searchMutation.isPending}
                 >
                   {searchMutation.isPending ? (
                     <Spinner data-icon="inline-start" />

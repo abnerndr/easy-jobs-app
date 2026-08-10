@@ -125,7 +125,6 @@ async function fetchJobSettings() {
   if (!response.ok) throw new Error("Erro ao carregar configurações.");
   return response.json() as Promise<{
     settings: JobSettingsInput & { autoQueue: boolean };
-    usage: { usedToday: number; remainingToday: number };
   }>;
 }
 
@@ -153,9 +152,11 @@ async function triggerJobSearch() {
     message: string;
     created?: number;
     skippedMinMatch?: number;
+    alreadyHad?: number;
+    searchTarget?: number;
     minMatchScore?: number;
     source?: string;
-    remainingToday?: number;
+    pagesExhausted?: boolean;
   };
 }
 

@@ -75,40 +75,40 @@ describe("buildDemoJobs", () => {
 describe("jobSettingsSchema", () => {
   it("accepts payload without minMatchScore (backward compat)", () => {
     expect(
-      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, autoQueue: true }).success
+      jobSettingsSchema.safeParse({ searchTarget: 10, autoQueue: true }).success
     ).toBe(true);
   });
 
-  it("accepts valid daily limit and minMatchScore", () => {
+  it("accepts valid searchTarget and minMatchScore", () => {
     expect(
-      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, minMatchScore: 50 }).success
+      jobSettingsSchema.safeParse({ searchTarget: 10, minMatchScore: 50 }).success
     ).toBe(true);
   });
 
-  it("rejects limit below 1", () => {
+  it("rejects searchTarget below 1", () => {
     expect(
-      jobSettingsSchema.safeParse({ dailyApplyLimit: 0, minMatchScore: 50 }).success
+      jobSettingsSchema.safeParse({ searchTarget: 0, minMatchScore: 50 }).success
     ).toBe(false);
   });
 
   it("rejects minMatchScore below 0", () => {
     expect(
-      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, minMatchScore: -1 }).success
+      jobSettingsSchema.safeParse({ searchTarget: 10, minMatchScore: -1 }).success
     ).toBe(false);
   });
 
   it("rejects minMatchScore above 100", () => {
     expect(
-      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, minMatchScore: 101 }).success
+      jobSettingsSchema.safeParse({ searchTarget: 10, minMatchScore: 101 }).success
     ).toBe(false);
   });
 
   it("accepts minMatchScore at bounds 0 and 100", () => {
     expect(
-      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, minMatchScore: 0 }).success
+      jobSettingsSchema.safeParse({ searchTarget: 10, minMatchScore: 0 }).success
     ).toBe(true);
     expect(
-      jobSettingsSchema.safeParse({ dailyApplyLimit: 10, minMatchScore: 100 }).success
+      jobSettingsSchema.safeParse({ searchTarget: 10, minMatchScore: 100 }).success
     ).toBe(true);
   });
 });
