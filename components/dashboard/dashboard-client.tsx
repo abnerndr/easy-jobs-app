@@ -376,6 +376,10 @@ export function DashboardClient() {
     }
     try {
       const result = await matchSelectedMutation.mutateAsync(selectedIds);
+      if (result.updated === 0) {
+        toast.warning(result.message);
+        return;
+      }
       setSelectedIds([]);
       toast.success(result.message);
     } catch (error) {
