@@ -153,6 +153,7 @@ async function triggerJobSearch() {
     message: string;
     created?: number;
     skippedMinMatch?: number;
+    minMatchScore?: number;
     source?: string;
     remainingToday?: number;
   };

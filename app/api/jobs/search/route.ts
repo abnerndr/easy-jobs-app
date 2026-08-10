@@ -21,13 +21,17 @@ export async function POST() {
 
     // Always sync: job board scrapes need the Node process (Playwright).
     const result = await runJobSearch(session.user.id);
+    let message =
+      result.created === 0 && result.remainingToday === 0
+        ? "Limite diário atingido."
+        : `Encontramos ${result.created} vaga(s) reais (${(result.sourcesUsed ?? [result.source]).join(", ")}).`;
+    if (result.skippedMinMatch > 0) {
+      message += ` ${result.skippedMinMatch} vaga(s) ficaram abaixo do match mínimo (${result.minMatchScore}%).`;
+    }
     return NextResponse.json({
       mode: "sync" as const,
       ...result,
-      message:
-        result.created === 0 && result.remainingToday === 0
-          ? "Limite diário atingido."
-          : `Encontramos ${result.created} vaga(s) reais (${(result.sourcesUsed ?? [result.source]).join(", ")}).`,
+      message,
     });
   } catch (error) {
     console.error("job search failed", error);

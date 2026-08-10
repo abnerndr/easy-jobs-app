@@ -147,12 +147,17 @@ export function DashboardClient() {
   async function handleSaveSettings() {
     const dailyApplyLimit = Number(limitValue);
     const minMatchScore = Number(minMatchValue);
-    if (!Number.isFinite(dailyApplyLimit)) {
-      toast.error("Informe um limite diário válido.");
+    if (!Number.isFinite(dailyApplyLimit) || !Number.isInteger(dailyApplyLimit)) {
+      toast.error("Informe um limite diário inteiro válido.");
       return;
     }
-    if (!Number.isFinite(minMatchScore) || minMatchScore < 0 || minMatchScore > 100) {
-      toast.error("Informe um match mínimo entre 0 e 100.");
+    if (
+      !Number.isFinite(minMatchScore) ||
+      !Number.isInteger(minMatchScore) ||
+      minMatchScore < 0 ||
+      minMatchScore > 100
+    ) {
+      toast.error("Informe um match mínimo inteiro entre 0 e 100.");
       return;
     }
     try {

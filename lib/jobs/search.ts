@@ -78,6 +78,7 @@ export type JobSearchResult = {
   created: number;
   skippedLimit: number;
   skippedMinMatch: number;
+  minMatchScore: number;
   source: JobSourceName | "MIXED";
   remainingToday: number;
   sourcesUsed: JobSourceName[];
@@ -109,12 +110,14 @@ export async function runJobSearch(userId: string): Promise<JobSearchResult> {
   const settings = await getOrCreateJobSettings(userId);
   const usedToday = await countTodayUsage(userId);
   const remaining = Math.max(0, settings.dailyApplyLimit - usedToday);
+  const minMatchScore = settings.minMatchScore ?? 50;
 
   if (remaining === 0) {
     return {
       created: 0,
       skippedLimit: 0,
       skippedMinMatch: 0,
+      minMatchScore,
       source: "MIXED",
       remainingToday: 0,
       sourcesUsed: [],
@@ -170,7 +173,6 @@ export async function runJobSearch(userId: string): Promise<JobSearchResult> {
   }
 
   const savedJobs = await upsertJobs(collected.slice(0, remaining + 10));
-  const minMatchScore = settings.minMatchScore ?? 50;
   let created = 0;
   let skippedLimit = 0;
   let skippedMinMatch = 0;
@@ -222,6 +224,7 @@ export async function runJobSearch(userId: string): Promise<JobSearchResult> {
     created,
     skippedLimit,
     skippedMinMatch,
+    minMatchScore,
     source,
     remainingToday,
     sourcesUsed,
