@@ -75,6 +75,7 @@ export function DashboardClient() {
   const disconnectMutation = useDisconnectBoardMutation();
 
   const [limitDraft, setLimitDraft] = useState<string | null>(null);
+  const [minMatchDraft, setMinMatchDraft] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [startingProvider, setStartingProvider] = useState<
     "linkedin" | "indeed" | null
@@ -134,6 +135,8 @@ export function DashboardClient() {
   }
 
   const limitValue = limitDraft ?? String(settings?.dailyApplyLimit ?? 10);
+  const minMatchValue =
+    minMatchDraft ?? String(settings?.minMatchScore ?? 50);
   const usedToday = usage?.usedToday ?? 0;
   const dailyLimit = settings?.dailyApplyLimit ?? 10;
   const remainingToday = usage?.remainingToday ?? 0;
@@ -141,19 +144,26 @@ export function DashboardClient() {
     dailyLimit > 0 ? Math.min(100, Math.round((usedToday / dailyLimit) * 100)) : 0;
   const atLimit = remainingToday === 0;
 
-  async function handleSaveLimit() {
+  async function handleSaveSettings() {
     const dailyApplyLimit = Number(limitValue);
+    const minMatchScore = Number(minMatchValue);
     if (!Number.isFinite(dailyApplyLimit)) {
-      toast.error("Informe um número válido.");
+      toast.error("Informe um limite diário válido.");
+      return;
+    }
+    if (!Number.isFinite(minMatchScore) || minMatchScore < 0 || minMatchScore > 100) {
+      toast.error("Informe um match mínimo entre 0 e 100.");
       return;
     }
     try {
       await saveSettings.mutateAsync({
         dailyApplyLimit,
+        minMatchScore,
         autoQueue: settings?.autoQueue ?? true,
       });
       setLimitDraft(null);
-      toast.success("Limite diário atualizado.");
+      setMinMatchDraft(null);
+      toast.success("Configurações atualizadas.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Erro ao salvar.");
     }
@@ -713,15 +723,15 @@ export function DashboardClient() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Limite diário</CardTitle>
+            <CardTitle>Configurações de busca</CardTitle>
             <CardDescription>
-              Quantas vagas podem entrar na fila por dia.
+              Limite diário e filtro de compatibilidade com seu perfil.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <FieldGroup>
               <Field orientation="horizontal">
-                <FieldLabel htmlFor="daily-limit">Máximo</FieldLabel>
+                <FieldLabel htmlFor="daily-limit">Limite diário</FieldLabel>
                 <Input
                   id="daily-limit"
                   type="number"
@@ -733,14 +743,30 @@ export function DashboardClient() {
                 />
               </Field>
               <FieldDescription>
-                Valores entre 1 e 100. Padrão: 10.
+                Quantas vagas podem entrar na fila por dia (1–100). Padrão: 10.
+              </FieldDescription>
+              <Field orientation="horizontal">
+                <FieldLabel htmlFor="min-match">Match mínimo (%)</FieldLabel>
+                <Input
+                  id="min-match"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={minMatchValue}
+                  onChange={(e) => setMinMatchDraft(e.target.value)}
+                  className="max-w-28"
+                />
+              </Field>
+              <FieldDescription>
+                Só entram vagas com match igual ou acima deste percentual após a
+                busca. Padrão: 50%.
               </FieldDescription>
             </FieldGroup>
           </CardContent>
           <CardFooter>
             <Button
               variant="outline"
-              onClick={handleSaveLimit}
+              onClick={handleSaveSettings}
               disabled={saveSettings.isPending}
             >
               {saveSettings.isPending ? (
@@ -748,7 +774,7 @@ export function DashboardClient() {
               ) : (
                 <Settings2Icon data-icon="inline-start" />
               )}
-              Salvar limite
+              Salvar configurações
             </Button>
           </CardFooter>
         </Card>

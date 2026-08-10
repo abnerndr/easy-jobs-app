@@ -67,9 +67,17 @@ async function upsertJobs(jobs: NormalizedJob[]) {
   return saved;
 }
 
+export function passesMinMatchFilter(
+  matchScore: number,
+  minMatchScore: number
+): boolean {
+  return matchScore >= minMatchScore;
+}
+
 export type JobSearchResult = {
   created: number;
   skippedLimit: number;
+  skippedMinMatch: number;
   source: JobSourceName | "MIXED";
   remainingToday: number;
   sourcesUsed: JobSourceName[];
@@ -106,6 +114,7 @@ export async function runJobSearch(userId: string): Promise<JobSearchResult> {
     return {
       created: 0,
       skippedLimit: 0,
+      skippedMinMatch: 0,
       source: "MIXED",
       remainingToday: 0,
       sourcesUsed: [],
@@ -161,19 +170,26 @@ export async function runJobSearch(userId: string): Promise<JobSearchResult> {
   }
 
   const savedJobs = await upsertJobs(collected.slice(0, remaining + 10));
+  const minMatchScore = settings.minMatchScore ?? 50;
   let created = 0;
   let skippedLimit = 0;
+  let skippedMinMatch = 0;
 
   for (const job of savedJobs) {
-    if (created >= remaining) {
-      skippedLimit += 1;
-      continue;
-    }
-
     const matchScore = computeMatchScore(
       { jobTitles: profile.jobTitles, techStack: profile.techStack },
       { title: job.title, description: job.description }
     );
+
+    if (!passesMinMatchFilter(matchScore, minMatchScore)) {
+      skippedMinMatch += 1;
+      continue;
+    }
+
+    if (created >= remaining) {
+      skippedLimit += 1;
+      continue;
+    }
 
     const status = settings.autoQueue ? "QUEUED" : "FOUND";
 
@@ -202,5 +218,12 @@ export async function runJobSearch(userId: string): Promise<JobSearchResult> {
   const source: JobSourceName | "MIXED" =
     sourcesUsed.length === 1 ? sourcesUsed[0] : "MIXED";
 
-  return { created, skippedLimit, source, remainingToday, sourcesUsed };
+  return {
+    created,
+    skippedLimit,
+    skippedMinMatch,
+    source,
+    remainingToday,
+    sourcesUsed,
+  };
 }

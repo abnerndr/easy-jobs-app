@@ -152,6 +152,7 @@ async function triggerJobSearch() {
     mode: "sync" | "queued";
     message: string;
     created?: number;
+    skippedMinMatch?: number;
     source?: string;
     remainingToday?: number;
   };

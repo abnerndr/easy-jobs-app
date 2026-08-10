@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeMatchScore } from "@/lib/jobs/match-score";
+import { passesMinMatchFilter } from "@/lib/jobs/search";
 import { buildDedupeKey } from "@/lib/jobs/types";
 import { buildDemoJobs } from "@/lib/jobs/sources";
 import { jobSettingsSchema, applicationsQuerySchema } from "@/lib/schemas/jobs";
@@ -31,6 +32,18 @@ describe("computeMatchScore", () => {
       }
     );
     expect(score).toBeLessThan(30);
+  });
+});
+
+describe("passesMinMatchFilter", () => {
+  it("accepts scores at or above the minimum", () => {
+    expect(passesMinMatchFilter(50, 50)).toBe(true);
+    expect(passesMinMatchFilter(80, 50)).toBe(true);
+  });
+
+  it("rejects scores below the minimum", () => {
+    expect(passesMinMatchFilter(49, 50)).toBe(false);
+    expect(passesMinMatchFilter(0, 1)).toBe(false);
   });
 });
 

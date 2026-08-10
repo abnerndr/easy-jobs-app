@@ -17,6 +17,7 @@ export async function GET() {
       settings: {
         dailyApplyLimit: settings.dailyApplyLimit,
         autoQueue: settings.autoQueue,
+        minMatchScore: settings.minMatchScore ?? 50,
       },
       usage: {
         usedToday,
@@ -46,11 +47,15 @@ export async function PATCH(request: Request) {
         userId: session.user.id,
         dailyApplyLimit: parsed.data.dailyApplyLimit,
         autoQueue: parsed.data.autoQueue ?? true,
+        minMatchScore: parsed.data.minMatchScore ?? 50,
       },
       update: {
         dailyApplyLimit: parsed.data.dailyApplyLimit,
         ...(parsed.data.autoQueue !== undefined
           ? { autoQueue: parsed.data.autoQueue }
+          : {}),
+        ...(parsed.data.minMatchScore !== undefined
+          ? { minMatchScore: parsed.data.minMatchScore }
           : {}),
       },
     });
@@ -61,6 +66,7 @@ export async function PATCH(request: Request) {
       settings: {
         dailyApplyLimit: settings.dailyApplyLimit,
         autoQueue: settings.autoQueue,
+        minMatchScore: settings.minMatchScore ?? 50,
       },
       usage: {
         usedToday,
