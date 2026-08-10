@@ -214,6 +214,24 @@ async function applySelectedJobs(applicationIds: string[]) {
   };
 }
 
+async function matchSelectedJobs(applicationIds: string[]) {
+  const response = await fetch("/api/jobs/match", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ applicationIds }),
+  });
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(
+      body?.error?.message ?? body?.error ?? "Erro ao dar match nas selecionadas."
+    );
+  }
+  return body as {
+    updated: number;
+    message: string;
+  };
+}
+
 export function useJobsQuery() {
   return useQuery({ queryKey: JOBS_KEY, queryFn: fetchJobs });
 }
@@ -279,6 +297,18 @@ export function useApplySelectedJobsMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: applySelectedJobs,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: JOBS_KEY });
+      queryClient.invalidateQueries({ queryKey: APPLICATIONS_KEY });
+      queryClient.invalidateQueries({ queryKey: SETTINGS_KEY });
+    },
+  });
+}
+
+export function useMatchSelectedJobsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: matchSelectedJobs,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: JOBS_KEY });
       queryClient.invalidateQueries({ queryKey: APPLICATIONS_KEY });

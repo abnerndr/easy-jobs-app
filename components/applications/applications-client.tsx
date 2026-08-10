@@ -40,6 +40,7 @@ const FILTERS: { value: "all" | ApplicationStatus; label: string }[] = [
   { value: "all", label: "Todos" },
   { value: "FOUND", label: "Encontrada" },
   { value: "QUEUED", label: "Na fila" },
+  { value: "MATCHED", label: "Combinou" },
   { value: "APPLIED", label: "Aplicada" },
   { value: "EXTERNAL_REDIRECT", label: "Site externo" },
   { value: "FAILED", label: "Falhou" },

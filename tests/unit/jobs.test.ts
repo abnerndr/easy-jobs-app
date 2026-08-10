@@ -139,6 +139,26 @@ describe("applySelectedSchema", () => {
   });
 });
 
+describe("matchSelectedSchema", () => {
+  it("requires at least one id", async () => {
+    const { matchSelectedSchema } = await import("@/lib/schemas/jobs");
+    expect(matchSelectedSchema.safeParse({ applicationIds: [] }).success).toBe(
+      false
+    );
+    expect(
+      matchSelectedSchema.safeParse({ applicationIds: ["a1"] }).success
+    ).toBe(true);
+  });
+
+  it("rejects more than 50 ids", async () => {
+    const { matchSelectedSchema } = await import("@/lib/schemas/jobs");
+    const ids = Array.from({ length: 51 }, (_, i) => `id-${i}`);
+    expect(matchSelectedSchema.safeParse({ applicationIds: ids }).success).toBe(
+      false
+    );
+  });
+});
+
 describe("form-fill heuristics", () => {
   it("returns email/name without calling AI", async () => {
     const { answerFormQuestion } = await import("@/lib/ai/form-fill");

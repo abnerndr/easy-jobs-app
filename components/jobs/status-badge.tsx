@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 const STATUS_LABEL: Record<string, string> = {
   FOUND: "Encontrada",
   QUEUED: "Na fila",
+  MATCHED: "Combinou",
   APPLIED: "Aplicada",
   EXTERNAL_REDIRECT: "Site externo",
   FAILED: "Falhou",
@@ -15,6 +16,7 @@ const STATUS_VARIANT: Record<
 > = {
   FOUND: "secondary",
   QUEUED: "default",
+  MATCHED: "default",
   APPLIED: "outline",
   EXTERNAL_REDIRECT: "outline",
   FAILED: "destructive",

@@ -31,4 +31,11 @@ export const applySelectedSchema = z.object({
     .max(50, { error: "Selecione no máximo 50 vagas por vez." }),
 });
 
+export const matchSelectedSchema = z.object({
+  applicationIds: z
+    .array(z.string().min(1))
+    .min(1, { error: "Selecione ao menos uma vaga." })
+    .max(50, { error: "Selecione no máximo 50 vagas por vez." }),
+});
+
 export type JobSettingsInput = z.infer<typeof jobSettingsSchema>;

@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   BriefcaseIcon,
   ExternalLinkIcon,
+  HeartIcon,
   Link2Icon,
   SearchIcon,
   SendIcon,
@@ -56,6 +57,7 @@ import {
   useJobSearchMutation,
   useJobSettingsQuery,
   useJobsQuery,
+  useMatchSelectedJobsMutation,
   useSaveJobSettingsMutation,
 } from "@/hooks/use-jobs";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -70,6 +72,7 @@ export function DashboardClient() {
   const clearDemoMutation = useClearDemoJobsMutation();
   const deleteSelectedMutation = useDeleteSelectedJobsMutation();
   const applySelectedMutation = useApplySelectedJobsMutation();
+  const matchSelectedMutation = useMatchSelectedJobsMutation();
   const saveSettings = useSaveJobSettingsMutation();
   const connectMutation = useConnectBoardMutation();
   const disconnectMutation = useDisconnectBoardMutation();
@@ -362,6 +365,22 @@ export function DashboardClient() {
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Erro ao candidatar."
+      );
+    }
+  }
+
+  async function handleMatchSelected() {
+    if (selectedIds.length === 0) {
+      toast.error("Selecione ao menos uma vaga.");
+      return;
+    }
+    try {
+      const result = await matchSelectedMutation.mutateAsync(selectedIds);
+      setSelectedIds([]);
+      toast.success(result.message);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Erro ao dar match."
       );
     }
   }
@@ -806,6 +825,23 @@ export function DashboardClient() {
                 </Label>
               </div>
             )}
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleMatchSelected}
+              disabled={
+                selectedIds.length === 0 || matchSelectedMutation.isPending
+              }
+            >
+              {matchSelectedMutation.isPending ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <HeartIcon data-icon="inline-start" />
+              )}
+              {matchSelectedMutation.isPending
+                ? "Marcando match…"
+                : `Dar match nas selecionadas (${selectedIds.length})`}
+            </Button>
             <Button
               size="sm"
               onClick={handleApplySelected}
